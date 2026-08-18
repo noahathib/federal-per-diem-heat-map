@@ -158,6 +158,8 @@ h1, h2, h3 { margin: 0; font-weight: 620; letter-spacing: -.011em; }
 
 #map { min-height: 0; background: #eaf0f4; }
 
+.state-gradient-layer { pointer-events: none; }
+
 .hint { color: var(--ink-faint); font-size: 12.5px; }
 
 .map-legend {

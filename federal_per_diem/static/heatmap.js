@@ -33,7 +33,7 @@ const app = {
   map: null,
   renderer: null,
   statesLayer: null,
-  blobLayer: null,
+  gradientLayer: null,
   zctaLayer: null,
   statesGeojson: null,
   stateGeoCache: new Map(),
@@ -92,6 +92,20 @@ function blend(start, end, amount) {
   return `rgb(${channels.join(", ")})`;
 }
 
+function heatRgb(value, range) {
+  if (value === undefined || value === null || value === "") return hexToRgb(COLORS.noRate);
+  const number = Number(value);
+  if (!range || !Number.isFinite(number) || range.min === null || range.max === null) {
+    return hexToRgb(COLORS.noRate);
+  }
+  const spread = Number(range.max) - Number(range.min);
+  const position = spread === 0 ? 0.5 : Math.max(0, Math.min(1, (number - range.min) / spread));
+  const start = position <= 0.5 ? hexToRgb(COLORS.low) : hexToRgb(COLORS.middle);
+  const end = position <= 0.5 ? hexToRgb(COLORS.middle) : hexToRgb(COLORS.high);
+  const amount = position <= 0.5 ? position * 2 : (position - 0.5) * 2;
+  return start.map((channel, index) => Math.round(channel + (end[index] - channel) * amount));
+}
+
 function heatColor(value, range) {
   if (value === undefined || value === null || value === "") return COLORS.noRate;
   const number = Number(value);
@@ -136,9 +150,9 @@ function stateStyle(feature) {
   }
   return {
     color: "#ffffff",
-    weight: 1,
-    fillColor: COLORS.stateContext,
-    fillOpacity: feature.properties.hasLayer ? 0.42 : 0.26,
+    weight: 1.15,
+    fillColor: "#ffffff",
+    fillOpacity: feature.properties.hasLayer ? 0.015 : 0.2,
   };
 }
 
@@ -153,54 +167,158 @@ function stateTooltip(feature) {
   ]);
 }
 
-function blobStyle(cell) {
-  const value = cell[currentMetric().field];
-  const ambiguousOnly = (cell.ratedZipCount || 0) === 0 && cell.ambiguousZipCount > 0;
-  return {
-    color: "rgba(255, 255, 255, .9)",
-    weight: 1,
-    fillColor: ambiguousOnly ? COLORS.ambiguous : heatColor(value, currentRange()),
-    fillOpacity: ambiguousOnly ? 0.72 : 0.82,
-  };
-}
-
-function blobTooltip(cell) {
-  const value = cell[currentMetric().field];
-  const lines = [];
-  if (cell.ratedZipCount) {
-    lines.push(`${currentMetric().label} regional median: ${money(value)}`);
-    lines.push(`${cell.ratedZipCount.toLocaleString()} ZIPs in this coarse area`);
-  } else {
-    lines.push("No single rate in this coarse area");
-  }
-  if (cell.ambiguousZipCount) {
-    lines.push(`${cell.ambiguousZipCount.toLocaleString()} multi-locality ZIPs`);
-  }
-  lines.push("Click for exact ZIP areas");
-  return tooltipNode(cell.state, lines);
-}
-
-function syncBlobLayer() {
-  if (app.blobLayer) {
-    app.map.removeLayer(app.blobLayer);
-    app.blobLayer = null;
-  }
-  if (app.mode !== "national" || !app.nationalData) return;
-  const markers = (app.nationalData.cells || []).map((cell) => {
-    const count = Number(cell.ratedZipCount || 0) + Number(cell.ambiguousZipCount || 0);
-    const marker = L.circleMarker([cell.latitude, cell.longitude], {
-      renderer: app.renderer,
-      radius: Math.min(15, 6 + Math.sqrt(Math.max(1, count)) * 1.25),
-      ...blobStyle(cell),
+function projectedStatePath(feature, map, topLeft) {
+  const path = new Path2D();
+  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  const polygons = feature.geometry.type === "Polygon"
+    ? [feature.geometry.coordinates]
+    : feature.geometry.coordinates;
+  polygons.forEach((polygon) => {
+    polygon.forEach((ring) => {
+      ring.forEach(([longitude, latitude], index) => {
+        const point = map.latLngToLayerPoint([latitude, longitude]).subtract(topLeft);
+        if (index === 0) path.moveTo(point.x, point.y);
+        else path.lineTo(point.x, point.y);
+        bounds.minX = Math.min(bounds.minX, point.x);
+        bounds.minY = Math.min(bounds.minY, point.y);
+        bounds.maxX = Math.max(bounds.maxX, point.x);
+        bounds.maxY = Math.max(bounds.maxY, point.y);
+      });
+      path.closePath();
     });
-    marker.bindTooltip(blobTooltip(cell), { className: "zcta-tip" });
-    marker.on("click", (event) => {
-      L.DomEvent.stopPropagation(event);
-      selectState(cell.state).catch((error) => toast(error.message));
-    });
-    return marker;
   });
-  app.blobLayer = L.layerGroup(markers).addTo(app.map);
+  return { path, bounds };
+}
+
+function drawStateGradient(context, feature, cells, range, map, topLeft, size) {
+  const projected = projectedStatePath(feature, map, topLeft);
+  const minX = Math.max(0, Math.floor(projected.bounds.minX));
+  const minY = Math.max(0, Math.floor(projected.bounds.minY));
+  const maxX = Math.min(size.x, Math.ceil(projected.bounds.maxX));
+  const maxY = Math.min(size.y, Math.ceil(projected.bounds.maxY));
+  const width = maxX - minX;
+  const height = maxY - minY;
+  if (width <= 0 || height <= 0) return;
+
+  const fieldCells = cells
+    .map((cell) => {
+      const value = Number(cell[currentMetric().field]);
+      if (!Number.isFinite(value) || !cell.ratedZipCount) return null;
+      const point = map
+        .latLngToLayerPoint([cell.latitude, cell.longitude])
+        .subtract(topLeft);
+      return { x: point.x, y: point.y, value };
+    })
+    .filter(Boolean);
+
+  context.save();
+  context.clip(projected.path, "evenodd");
+  if (!fieldCells.length) {
+    context.fillStyle = COLORS.noRate;
+    context.fill(projected.path, "evenodd");
+    context.restore();
+    return;
+  }
+
+  const sampleSize = 7;
+  const fieldWidth = Math.max(1, Math.ceil(width / sampleSize));
+  const fieldHeight = Math.max(1, Math.ceil(height / sampleSize));
+  const fieldCanvas = document.createElement("canvas");
+  fieldCanvas.width = fieldWidth;
+  fieldCanvas.height = fieldHeight;
+  const fieldContext = fieldCanvas.getContext("2d");
+  const image = fieldContext.createImageData(fieldWidth, fieldHeight);
+  const xScale = width / fieldWidth;
+  const yScale = height / fieldHeight;
+  const distanceFloor = Math.max(16, width * height * 0.0025);
+
+  for (let y = 0; y < fieldHeight; y += 1) {
+    const sampleY = minY + (y + 0.5) * yScale;
+    for (let x = 0; x < fieldWidth; x += 1) {
+      const sampleX = minX + (x + 0.5) * xScale;
+      let weightedValue = 0;
+      let totalWeight = 0;
+      fieldCells.forEach((cell) => {
+        const dx = sampleX - cell.x;
+        const dy = sampleY - cell.y;
+        const weight = 1 / (dx * dx + dy * dy + distanceFloor);
+        weightedValue += cell.value * weight;
+        totalWeight += weight;
+      });
+      const [red, green, blue] = heatRgb(weightedValue / totalWeight, range);
+      const offset = (y * fieldWidth + x) * 4;
+      image.data[offset] = red;
+      image.data[offset + 1] = green;
+      image.data[offset + 2] = blue;
+      image.data[offset + 3] = 255;
+    }
+  }
+  fieldContext.putImageData(image, 0, 0);
+  context.imageSmoothingEnabled = true;
+  context.globalAlpha = 0.88;
+  context.drawImage(fieldCanvas, minX, minY, width, height);
+  context.restore();
+}
+
+function createStateGradientLayer() {
+  const StateGradientLayer = L.Layer.extend({
+    onAdd(map) {
+      this._map = map;
+      this._canvas = L.DomUtil.create("canvas", "leaflet-layer state-gradient-layer");
+      map.getPane("stateGradientPane").appendChild(this._canvas);
+      map.on("moveend zoomend resize viewreset", this.redraw, this);
+      this.redraw();
+    },
+    onRemove(map) {
+      map.off("moveend zoomend resize viewreset", this.redraw, this);
+      L.DomUtil.remove(this._canvas);
+      this._canvas = null;
+    },
+    redraw() {
+      if (!this._canvas || this._frame) return;
+      this._frame = L.Util.requestAnimFrame(this._draw, this);
+    },
+    _draw() {
+      this._frame = null;
+      const canvas = this._canvas;
+      if (!canvas) return;
+      if (app.mode !== "national" || !app.nationalData || !app.statesGeojson) {
+        canvas.style.display = "none";
+        return;
+      }
+      canvas.style.display = "block";
+      const map = this._map;
+      const size = map.getSize();
+      const ratio = window.devicePixelRatio || 1;
+      const topLeft = map.containerPointToLayerPoint([0, 0]);
+      L.DomUtil.setPosition(canvas, topLeft);
+      canvas.style.width = `${size.x}px`;
+      canvas.style.height = `${size.y}px`;
+      canvas.width = Math.round(size.x * ratio);
+      canvas.height = Math.round(size.y * ratio);
+      const context = canvas.getContext("2d");
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+      const byState = new Map();
+      (app.nationalData.cells || []).forEach((cell) => {
+        if (!byState.has(cell.state)) byState.set(cell.state, []);
+        byState.get(cell.state).push(cell);
+      });
+      const range = currentRange();
+      app.statesGeojson.features.forEach((feature) => {
+        drawStateGradient(
+          context,
+          feature,
+          byState.get(feature.properties.state) || [],
+          range,
+          map,
+          topLeft,
+          size
+        );
+      });
+    },
+  });
+  return new StateGradientLayer();
 }
 
 function zctaStyle(feature) {
@@ -257,8 +375,8 @@ function renderLegend() {
   legend.replaceChildren();
   legend.appendChild(el("b", null, currentMetric().label));
   appendScale(legend, currentRange());
-  addLegendKey(legend, COLORS.ambiguous, "Multiple rate localities");
-  if (app.mode === "state") addLegendKey(legend, COLORS.noRate, "No single rate");
+  if (app.mode === "state") addLegendKey(legend, COLORS.ambiguous, "Multiple rate localities");
+  addLegendKey(legend, COLORS.noRate, "No single rate");
 }
 
 function renderScalePanel() {
@@ -273,7 +391,7 @@ function renderScalePanel() {
       null,
       app.mode === "state"
         ? "ZIP colors are scaled from the lowest to highest unambiguous rate in this state."
-        : "Regional blobs are scaled from low to high using coarse ZIP-rate medians."
+        : "Each state fill smoothly blends coarse regional medians from its underlying ZIP rates."
     )
   );
 }
@@ -352,7 +470,7 @@ function renderAll() {
   renderScalePanel();
   renderSummary();
   renderSelection();
-  syncBlobLayer();
+  if (app.gradientLayer) app.gradientLayer.redraw();
   if (app.statesLayer) {
     app.statesLayer.eachLayer((layer) => {
       layer.setStyle(stateStyle(layer.feature));
@@ -397,7 +515,7 @@ async function loadNationalData() {
   if (snapshot.cells) return snapshot;
   const layout = app.nationalSnapshots.cellLayout || [];
   const values = snapshot.cellValues || [];
-  if (layout.length !== values.length) throw new Error("Published map blob data is incomplete");
+  if (layout.length !== values.length) throw new Error("Published map gradient data is incomplete");
   return {
     ...snapshot,
     cells: layout.map((cell, index) => ({
@@ -514,6 +632,9 @@ function watchMapSize() {
 
 function buildStatesLayer(geojson) {
   app.statesGeojson = geojson;
+  if (!app.gradientLayer) {
+    app.gradientLayer = createStateGradientLayer().addTo(app.map);
+  }
   app.statesLayer = L.geoJSON(geojson, {
     renderer: app.renderer,
     style: stateStyle,
@@ -692,6 +813,9 @@ async function init() {
     maxZoom: 17,
     worldCopyJump: false,
   }).setView(NATIONAL_VIEW.center, NATIONAL_VIEW.zoom);
+  app.map.createPane("stateGradientPane");
+  app.map.getPane("stateGradientPane").style.zIndex = "350";
+  app.map.getPane("stateGradientPane").style.pointerEvents = "none";
   watchMapSize();
   setupBasemap();
 
