@@ -61,6 +61,8 @@ def test_build_pages_exports_relative_mobile_site(
     assert (output / "data" / "geo" / "zcta" / "NY.geojson").exists()
     script = (output / "heatmap.js").read_text(encoding="utf-8")
     assert "state-gradient-layer" in script
+    assert "leaflet-zoom-animated" in script
+    assert 'map.on("zoomanim", this._animateZoom, this)' in script
     assert "L.circleMarker" not in script
 
     national = json.loads((output / "data" / "national.json").read_text())

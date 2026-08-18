@@ -265,12 +265,20 @@ function createStateGradientLayer() {
     onAdd(map) {
       this._map = map;
       this._canvas = L.DomUtil.create("canvas", "leaflet-layer state-gradient-layer");
+      this._zoomAnimated = map.options.zoomAnimation && L.Browser.any3d;
+      L.DomUtil.addClass(
+        this._canvas,
+        this._zoomAnimated ? "leaflet-zoom-animated" : "leaflet-zoom-hide"
+      );
       map.getPane("stateGradientPane").appendChild(this._canvas);
       map.on("moveend zoomend resize viewreset", this.redraw, this);
+      if (this._zoomAnimated) map.on("zoomanim", this._animateZoom, this);
       this.redraw();
     },
     onRemove(map) {
       map.off("moveend zoomend resize viewreset", this.redraw, this);
+      if (this._zoomAnimated) map.off("zoomanim", this._animateZoom, this);
+      if (this._frame) L.Util.cancelAnimFrame(this._frame);
       L.DomUtil.remove(this._canvas);
       this._canvas = null;
     },
@@ -291,7 +299,9 @@ function createStateGradientLayer() {
       const size = map.getSize();
       const ratio = window.devicePixelRatio || 1;
       const topLeft = map.containerPointToLayerPoint([0, 0]);
-      L.DomUtil.setPosition(canvas, topLeft);
+      this._bounds = map.getBounds();
+      if (this._zoomAnimated) L.DomUtil.setTransform(canvas, topLeft, 1);
+      else L.DomUtil.setPosition(canvas, topLeft);
       canvas.style.width = `${size.x}px`;
       canvas.style.height = `${size.y}px`;
       canvas.width = Math.round(size.x * ratio);
@@ -316,6 +326,14 @@ function createStateGradientLayer() {
           size
         );
       });
+    },
+    _animateZoom(event) {
+      if (!this._canvas || !this._bounds) return;
+      const scale = this._map.getZoomScale(event.zoom);
+      const offset = this._map
+        ._latLngBoundsToNewLayerBounds(this._bounds, event.zoom, event.center)
+        .min;
+      L.DomUtil.setTransform(this._canvas, offset, scale);
     },
   });
   return new StateGradientLayer();
