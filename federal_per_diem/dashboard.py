@@ -370,7 +370,7 @@ def database_context(settings: Settings) -> dict[str, Any]:
 
 
 HEATMAP_FIELDS = ("lodgingRate", "mieRate", "firstLastDayMie")
-HEATMAP_GRID_SIZE = 4
+HEATMAP_GRID_SIZE = 6
 
 
 def _one_year_after(value: date) -> date:
@@ -405,7 +405,7 @@ def _heatmap_cells(
     mapped_rows: list[tuple[sqlite3.Row, str]],
     geo: ZctaGeometryIndex,
 ) -> list[dict[str, Any]]:
-    """Aggregate ZIP rates into a coarse spatial grid for the national view."""
+    """Aggregate ZIP rates into a hotspot-preserving national-view grid."""
 
     positioned: dict[str, list[tuple[sqlite3.Row, float, float]]] = {}
     for row, state in mapped_rows:
@@ -478,7 +478,10 @@ def _heatmap_cells(
                 ("firstLastDayMie", "first_last_day_mie"),
             ):
                 values = [float(row[column]) for row in rated_rows]
-                cell[field] = median(values) if values else None
+                # The country view must keep a small expensive locality visible
+                # even when most ZIPs in its coarse cell use the standard rate.
+                # State drill-down still exposes every exact ZIP value.
+                cell[field] = max(values) if values else None
             cells.append(cell)
     return cells
 

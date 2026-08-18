@@ -220,7 +220,7 @@ function drawStateGradient(context, feature, cells, range, map, topLeft, size) {
     return;
   }
 
-  const sampleSize = 7;
+  const sampleSize = 5;
   const fieldWidth = Math.max(1, Math.ceil(width / sampleSize));
   const fieldHeight = Math.max(1, Math.ceil(height / sampleSize));
   const fieldCanvas = document.createElement("canvas");
@@ -230,7 +230,7 @@ function drawStateGradient(context, feature, cells, range, map, topLeft, size) {
   const image = fieldContext.createImageData(fieldWidth, fieldHeight);
   const xScale = width / fieldWidth;
   const yScale = height / fieldHeight;
-  const distanceFloor = Math.max(16, width * height * 0.0025);
+  const distanceFloor = Math.max(4, width * height * 0.00045);
 
   for (let y = 0; y < fieldHeight; y += 1) {
     const sampleY = minY + (y + 0.5) * yScale;
@@ -241,7 +241,7 @@ function drawStateGradient(context, feature, cells, range, map, topLeft, size) {
       fieldCells.forEach((cell) => {
         const dx = sampleX - cell.x;
         const dy = sampleY - cell.y;
-        const weight = 1 / (dx * dx + dy * dy + distanceFloor);
+        const weight = 1 / Math.pow(dx * dx + dy * dy + distanceFloor, 1.35);
         weightedValue += cell.value * weight;
         totalWeight += weight;
       });
@@ -409,7 +409,7 @@ function renderScalePanel() {
       null,
       app.mode === "state"
         ? "ZIP colors are scaled from the lowest to highest unambiguous rate in this state."
-        : "Each state fill smoothly blends coarse regional medians from its underlying ZIP rates."
+        : "Each state fill blends local high-rate samples so small expensive areas remain visible."
     )
   );
 }

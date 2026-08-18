@@ -71,8 +71,8 @@ def test_build_pages_exports_relative_mobile_site(
     assert snapshot["ratedZipCount"] == 1
     assert snapshot["ambiguousZipCount"] == 1
     assert national["cellLayout"] == [
-        ["NY-0-3", "NY", 2.5, 22.5],
-        ["NY-3-0", "NY", 5.0, 5.0],
+        ["NY-0-5", "NY", 2.5, 22.5],
+        ["NY-5-0", "NY", 5.0, 5.0],
     ]
     assert snapshot["cellValues"] == [
         [0, 1, None, None, None],

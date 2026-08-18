@@ -12,7 +12,7 @@ import pytest
 
 from federal_per_diem.config import Settings
 from federal_per_diem.database import build_database
-from federal_per_diem.dashboard import DashboardServer
+from federal_per_diem.dashboard import DashboardServer, _heatmap_cells
 from federal_per_diem.models import ValidationReport
 
 
@@ -249,7 +249,7 @@ def test_national_heatmap_summarizes_only_unambiguous_zip_rates(rate_server):
     ]
     assert payload["cells"] == [
         {
-            "id": "NY-0-3",
+            "id": "NY-0-5",
             "state": "NY",
             "latitude": 2.5,
             "longitude": 22.5,
@@ -260,7 +260,7 @@ def test_national_heatmap_summarizes_only_unambiguous_zip_rates(rate_server):
             "firstLastDayMie": None,
         },
         {
-            "id": "NY-3-0",
+            "id": "NY-5-0",
             "state": "NY",
             "latitude": 5.0,
             "longitude": 5.0,
@@ -271,6 +271,36 @@ def test_national_heatmap_summarizes_only_unambiguous_zip_rates(rate_server):
             "firstLastDayMie": 60.0,
         },
     ]
+
+
+def test_national_cells_preserve_a_small_local_high_rate():
+    rows = [
+        {
+            "zip_code": "10001",
+            "candidate_count": 1,
+            "lodging_rate": 110.0,
+            "mie_rate": 68.0,
+            "first_last_day_mie": 51.0,
+        },
+        {
+            "zip_code": "10002",
+            "candidate_count": 1,
+            "lodging_rate": 250.0,
+            "mie_rate": 92.0,
+            "first_last_day_mie": 69.0,
+        },
+    ]
+
+    class SameCellGeo:
+        @staticmethod
+        def center_for_zip(zip_code):
+            return (40.0, -75.0)
+
+    cells = _heatmap_cells([(row, "NY") for row in rows], SameCellGeo())
+    assert len(cells) == 1
+    assert cells[0]["lodgingRate"] == 250.0
+    assert cells[0]["mieRate"] == 92.0
+    assert cells[0]["ratedZipCount"] == 2
 
 
 def test_future_heatmap_uses_labeled_same_season_planning_rates(
