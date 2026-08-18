@@ -55,6 +55,8 @@ def test_build_pages_exports_relative_mobile_site(
     assert 'href="./styles.css?v=' in html
     assert 'href="./vendor/leaflet.css"' in html
     assert "Site guide" not in html
+    assert 'id="map-hint" class="hint" role="status" aria-live="polite"' in html
+    assert 'id="toast" class="toast" role="status" aria-live="polite"' in html
     assert "/api/" not in html
     assert (output / ".nojekyll").exists()
     assert not (output / "Using the GSA Rate Map URL.html").exists()

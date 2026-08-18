@@ -32,3 +32,10 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Smoke test deployed site
+        run: >-
+          python scripts/smoke_github_pages.py
+          "${{ steps.deployment.outputs.page_url }}"
+          --reference-site site
+          --attempts 12
+          --delay 5

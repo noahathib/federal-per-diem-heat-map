@@ -30,7 +30,7 @@
           maxlength="10" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="Enter ZIP" required>
         <button class="ghost" type="submit">Find</button>
       </form>
-      <span id="map-hint" class="hint">Search a ZIP or click a state for exact ZIP-level rates.</span>
+      <span id="map-hint" class="hint" role="status" aria-live="polite">Search a ZIP or click a state for exact ZIP-level rates.</span>
       <label class="toggle">
         <input type="checkbox" id="basemap-toggle">
         <span>Street basemap</span>
@@ -79,7 +79,7 @@
   </aside>
 </main>
 
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="/static/vendor/leaflet.js"></script>
 <script src="/static/heatmap.js"></script>
