@@ -53,10 +53,10 @@ def test_build_pages_exports_relative_mobile_site(
     assert 'data-static-map="true"' in html
     assert 'src="./heatmap.js"' in html
     assert 'href="./vendor/leaflet.css"' in html
-    assert 'href="./Using%20the%20GSA%20Rate%20Map%20URL.html"' in html
+    assert "Site guide" not in html
     assert "/api/" not in html
     assert (output / ".nojekyll").exists()
-    assert (output / "Using the GSA Rate Map URL.html").exists()
+    assert not (output / "Using the GSA Rate Map URL.html").exists()
     assert (output / "data" / "geo" / "zcta" / "NY.geojson").exists()
 
     national = json.loads((output / "data" / "national.json").read_text())
@@ -64,6 +64,21 @@ def test_build_pages_exports_relative_mobile_site(
     assert snapshot["rateStatus"] == "official"
     assert snapshot["ratedZipCount"] == 1
     assert snapshot["ambiguousZipCount"] == 1
+    assert national["cellLayout"] == [
+        ["NY-0-3", "NY", 2.5, 22.5],
+        ["NY-3-0", "NY", 5.0, 5.0],
+    ]
+    assert snapshot["cellValues"] == [
+        [0, 1, None, None, None],
+        [1, 0, 200.0, 80.0, 60.0],
+    ]
+
+    zip_index = json.loads((output / "data" / "zip-index.json").read_text())
+    assert zip_index["zips"] == {
+        "10001": ["NY", 5.0, 5.0],
+        "10002": ["NY", 2.5, 22.5],
+    }
+    assert manifest["searchableZipCount"] == 2
 
     state = json.loads((output / "data" / "rates" / "NY.json").read_text())
     assert set(state["zips"]) == {"10001", "10002"}

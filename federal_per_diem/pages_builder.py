@@ -47,13 +47,9 @@ def _static_html() -> str:
         'src="/static/vendor/leaflet.js"': 'src="./vendor/leaflet.js"',
         'src="/static/heatmap.js"': 'src="./heatmap.js"',
         '<a class="ghost masthead-link" href="/">Rate dashboard</a>': (
-            '<div class="masthead-links">'
-            '<a class="ghost masthead-link" '
-            'href="./Using%20the%20GSA%20Rate%20Map%20URL.html">Site guide</a>'
             '<a class="ghost masthead-link" '
             'href="https://www.gsa.gov/travel/plan-a-trip/per-diem-rates" '
             'target="_blank" rel="noopener noreferrer">GSA source</a>'
-            '</div>'
         ),
         'Loading local database context&hellip;': 'Loading published rate data&hellip;',
     }
@@ -90,10 +86,6 @@ def _copy_frontend(output_dir: Path) -> None:
     (output_dir / "index.html").write_text(_static_html(), encoding="utf-8")
     for filename in ("styles.css", "heatmap.css", "heatmap.js"):
         shutil.copy2(STATIC_ROOT / filename, output_dir / filename)
-    guide = PACKAGE_ROOT / SITE_GUIDE_FILENAME
-    if not guide.is_file():
-        raise FileNotFoundError(f"Site guide not found at {guide}")
-    shutil.copy2(guide, output_dir / SITE_GUIDE_FILENAME)
     shutil.copytree(STATIC_ROOT / "vendor", output_dir / "vendor")
     (output_dir / ".nojekyll").write_text("", encoding="utf-8")
     _write_json(
@@ -158,6 +150,44 @@ def _export_state_rates(
     return rate_count
 
 
+def _export_zip_index(geo: ZctaGeometryIndex, output_dir: Path) -> int:
+    """Export the compact ZIP/state/center lookup used by GitHub Pages."""
+
+    centers = geo.zip_centers()
+    zips = {
+        zip_code: [state, round(latitude, 5), round(longitude, 5)]
+        for zip_code, (state, latitude, longitude) in sorted(centers.items())
+    }
+    _write_json(output_dir / "data" / "zip-index.json", {"zips": zips})
+    return len(zips)
+
+
+def _compact_national_snapshot(
+    snapshot: dict[str, Any],
+    cell_layout: list[list[Any]] | None,
+) -> tuple[dict[str, Any], list[list[Any]]]:
+    """Store stable blob positions once and only date-varying values per day."""
+
+    cells = snapshot.pop("cells")
+    layout = [
+        [cell["id"], cell["state"], cell["latitude"], cell["longitude"]]
+        for cell in cells
+    ]
+    if cell_layout is not None and layout != cell_layout:
+        raise RuntimeError("National heat-map cell layout changed between dates")
+    snapshot["cellValues"] = [
+        [
+            cell["ratedZipCount"],
+            cell["ambiguousZipCount"],
+            cell["lodgingRate"],
+            cell["mieRate"],
+            cell["firstLastDayMie"],
+        ]
+        for cell in cells
+    ]
+    return snapshot, cell_layout or layout
+
+
 def build_pages(
     settings: Settings | None = None,
     output_dir: Path | str | None = None,
@@ -192,18 +222,23 @@ def build_pages(
         )
 
         snapshots: dict[str, dict[str, Any]] = {}
+        cell_layout: list[list[Any]] | None = None
         cursor = current_date
         while cursor <= planning_end:
-            snapshots[cursor.isoformat()] = heatmap_data(
+            snapshot = heatmap_data(
                 settings, cursor, geo, today=current_date
+            )
+            snapshots[cursor.isoformat()], cell_layout = _compact_national_snapshot(
+                snapshot, cell_layout
             )
             cursor += timedelta(days=1)
         _write_json(
             output / "data" / "national.json",
-            {"dates": snapshots},
+            {"cellLayout": cell_layout or [], "dates": snapshots},
         )
 
         exported_intervals = _export_state_rates(settings, geo, output)
+        exported_zip_count = _export_zip_index(geo, output)
         database = database_context(settings)
         generated_at = datetime.now(timezone.utc).isoformat()
         context = {
@@ -233,6 +268,7 @@ def build_pages(
         "travelEnd": planning_end.isoformat(),
         "dateCount": len(snapshots),
         "rateIntervalCount": exported_intervals,
+        "searchableZipCount": exported_zip_count,
         "fileCount": len(files),
         "bytes": sum(path.stat().st_size for path in files),
     }

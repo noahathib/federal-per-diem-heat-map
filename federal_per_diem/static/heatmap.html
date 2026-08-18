@@ -24,7 +24,13 @@
   <section class="map-pane">
     <div class="map-toolbar">
       <button id="back-to-states" class="ghost" type="button" hidden>&larr; All states</button>
-      <span id="map-hint" class="hint">Select a metric, then click a state for ZIP-level rates.</span>
+      <form id="zip-search" class="zip-search" role="search" aria-label="Find a ZIP code on the heat map">
+        <label for="zip-search-input">ZIP</label>
+        <input id="zip-search-input" type="text" inputmode="numeric" autocomplete="postal-code"
+          maxlength="10" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="Enter ZIP" required>
+        <button class="ghost" type="submit">Find</button>
+      </form>
+      <span id="map-hint" class="hint">Search a ZIP or click a state for exact ZIP-level rates.</span>
       <label class="toggle">
         <input type="checkbox" id="basemap-toggle">
         <span>Street basemap</span>
@@ -60,8 +66,8 @@
       <div class="heat-note">
         <h2>How to read this map</h2>
         <p>
-          The national view colors each state by the median of its unambiguous ZIP
-          rates. Click a state to see the exact value for each ZIP area.
+          The national view shows coarse regional rate blobs within each state.
+          Search a ZIP or click a state to see the exact value for each ZIP area.
         </p>
         <p>
           Purple ZIPs intersect multiple official rate localities. They stay out of

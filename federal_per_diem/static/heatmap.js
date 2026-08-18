@@ -33,6 +33,7 @@ const app = {
   map: null,
   renderer: null,
   statesLayer: null,
+  blobLayer: null,
   zctaLayer: null,
   statesGeojson: null,
   stateGeoCache: new Map(),
@@ -42,6 +43,7 @@ const app = {
   stateByZip: new Map(),
   nationalSnapshots: null,
   stateRateCache: new Map(),
+  zipIndex: null,
   tiles: null,
   sizeObserver: null,
 };
@@ -132,13 +134,11 @@ function stateStyle(feature) {
       fillOpacity: 0.55,
     };
   }
-  const summary = app.nationalByState.get(feature.properties.state);
-  const value = summary && summary[currentMetric().field];
   return {
     color: "#ffffff",
     weight: 1,
-    fillColor: heatColor(value, currentRange()),
-    fillOpacity: value === null || value === undefined ? 0.42 : 0.78,
+    fillColor: COLORS.stateContext,
+    fillOpacity: feature.properties.hasLayer ? 0.42 : 0.26,
   };
 }
 
@@ -151,6 +151,56 @@ function stateTooltip(feature) {
     `${summary.ratedZipCount.toLocaleString()} ZIPs in gradient`,
     `${summary.ambiguousZipCount.toLocaleString()} multi-locality ZIPs`,
   ]);
+}
+
+function blobStyle(cell) {
+  const value = cell[currentMetric().field];
+  const ambiguousOnly = (cell.ratedZipCount || 0) === 0 && cell.ambiguousZipCount > 0;
+  return {
+    color: "rgba(255, 255, 255, .9)",
+    weight: 1,
+    fillColor: ambiguousOnly ? COLORS.ambiguous : heatColor(value, currentRange()),
+    fillOpacity: ambiguousOnly ? 0.72 : 0.82,
+  };
+}
+
+function blobTooltip(cell) {
+  const value = cell[currentMetric().field];
+  const lines = [];
+  if (cell.ratedZipCount) {
+    lines.push(`${currentMetric().label} regional median: ${money(value)}`);
+    lines.push(`${cell.ratedZipCount.toLocaleString()} ZIPs in this coarse area`);
+  } else {
+    lines.push("No single rate in this coarse area");
+  }
+  if (cell.ambiguousZipCount) {
+    lines.push(`${cell.ambiguousZipCount.toLocaleString()} multi-locality ZIPs`);
+  }
+  lines.push("Click for exact ZIP areas");
+  return tooltipNode(cell.state, lines);
+}
+
+function syncBlobLayer() {
+  if (app.blobLayer) {
+    app.map.removeLayer(app.blobLayer);
+    app.blobLayer = null;
+  }
+  if (app.mode !== "national" || !app.nationalData) return;
+  const markers = (app.nationalData.cells || []).map((cell) => {
+    const count = Number(cell.ratedZipCount || 0) + Number(cell.ambiguousZipCount || 0);
+    const marker = L.circleMarker([cell.latitude, cell.longitude], {
+      renderer: app.renderer,
+      radius: Math.min(15, 6 + Math.sqrt(Math.max(1, count)) * 1.25),
+      ...blobStyle(cell),
+    });
+    marker.bindTooltip(blobTooltip(cell), { className: "zcta-tip" });
+    marker.on("click", (event) => {
+      L.DomEvent.stopPropagation(event);
+      selectState(cell.state).catch((error) => toast(error.message));
+    });
+    return marker;
+  });
+  app.blobLayer = L.layerGroup(markers).addTo(app.map);
 }
 
 function zctaStyle(feature) {
@@ -207,8 +257,8 @@ function renderLegend() {
   legend.replaceChildren();
   legend.appendChild(el("b", null, currentMetric().label));
   appendScale(legend, currentRange());
-  if (app.mode === "state") addLegendKey(legend, COLORS.ambiguous, "Multiple rate localities");
-  addLegendKey(legend, COLORS.noRate, "No single rate");
+  addLegendKey(legend, COLORS.ambiguous, "Multiple rate localities");
+  if (app.mode === "state") addLegendKey(legend, COLORS.noRate, "No single rate");
 }
 
 function renderScalePanel() {
@@ -223,7 +273,7 @@ function renderScalePanel() {
       null,
       app.mode === "state"
         ? "ZIP colors are scaled from the lowest to highest unambiguous rate in this state."
-        : "State colors are scaled by each state's median unambiguous ZIP rate."
+        : "Regional blobs are scaled from low to high using coarse ZIP-rate medians."
     )
   );
 }
@@ -302,6 +352,7 @@ function renderAll() {
   renderScalePanel();
   renderSummary();
   renderSelection();
+  syncBlobLayer();
   if (app.statesLayer) {
     app.statesLayer.eachLayer((layer) => {
       layer.setStyle(stateStyle(layer.feature));
@@ -341,9 +392,26 @@ async function loadNationalData() {
     app.nationalSnapshots = await fetchJSON("./data/national.json");
   }
   const travelDate = document.getElementById("date-input").value;
-  const data = app.nationalSnapshots.dates[travelDate];
-  if (!data) throw new Error(`No published planning data for ${travelDate}`);
-  return data;
+  const snapshot = app.nationalSnapshots.dates[travelDate];
+  if (!snapshot) throw new Error(`No published planning data for ${travelDate}`);
+  if (snapshot.cells) return snapshot;
+  const layout = app.nationalSnapshots.cellLayout || [];
+  const values = snapshot.cellValues || [];
+  if (layout.length !== values.length) throw new Error("Published map blob data is incomplete");
+  return {
+    ...snapshot,
+    cells: layout.map((cell, index) => ({
+      id: cell[0],
+      state: cell[1],
+      latitude: cell[2],
+      longitude: cell[3],
+      ratedZipCount: values[index][0],
+      ambiguousZipCount: values[index][1],
+      lodgingRate: values[index][2],
+      mieRate: values[index][3],
+      firstLastDayMie: values[index][4],
+    })),
+  };
 }
 
 function rangesFor(items) {
@@ -427,7 +495,6 @@ async function loadDate() {
       : null;
     setNationalData(national);
     if (state) setStateData(state);
-    app.selectedZip = null;
     renderAll();
   } finally {
     button.disabled = false;
@@ -496,6 +563,7 @@ async function selectState(code) {
       layer.on("click", (event) => {
         L.DomEvent.stopPropagation(event);
         app.selectedZip = feature.properties.zip;
+        document.getElementById("zip-search-input").value = app.selectedZip;
         renderAll();
       });
     },
@@ -503,6 +571,61 @@ async function selectState(code) {
   app.map.fitBounds(app.zctaLayer.getBounds(), { padding: [18, 18], animate: false });
   document.getElementById("back-to-states").hidden = false;
   document.getElementById("map-hint").textContent = `${code}: select a ZIP area for its rate.`;
+  renderAll();
+}
+
+function normalizeZipSearch(raw) {
+  const match = String(raw || "").trim().match(/^(\d{5})(?:-\d{4})?$/);
+  if (!match) throw new Error("Enter a five-digit ZIP code.");
+  return match[1];
+}
+
+async function loadZipEntry(zip) {
+  if (!STATIC_MODE) return fetchJSON(`/api/zip/${encodeURIComponent(zip)}`);
+  if (!app.zipIndex) app.zipIndex = await fetchJSON("./data/zip-index.json");
+  const row = app.zipIndex.zips && app.zipIndex.zips[zip];
+  if (!row) {
+    return {
+      zip,
+      found: false,
+      message: `ZIP ${zip} has no drawable Census ZIP area.`,
+    };
+  }
+  return { zip, found: true, state: row[0], center: [row[1], row[2]] };
+}
+
+function layerForZip(zip) {
+  let match = null;
+  if (!app.zctaLayer) return match;
+  app.zctaLayer.eachLayer((layer) => {
+    if (layer.feature && layer.feature.properties.zip === zip) match = layer;
+  });
+  return match;
+}
+
+async function locateZip(raw) {
+  const zip = normalizeZipSearch(raw);
+  const entry = await loadZipEntry(zip);
+  if (!entry.found || !entry.state) {
+    toast(entry.message || `ZIP ${zip} cannot be drawn on this map.`);
+    return;
+  }
+  await selectState(entry.state);
+  app.selectedZip = zip;
+  document.getElementById("zip-search-input").value = zip;
+  const layer = layerForZip(zip);
+  if (layer) {
+    app.map.fitBounds(layer.getBounds(), {
+      padding: [32, 32],
+      maxZoom: 12,
+      animate: false,
+    });
+    layer.openTooltip();
+  } else if (entry.center) {
+    app.map.setView(entry.center, 11, { animate: false });
+  }
+  document.getElementById("map-hint").textContent =
+    `${entry.state}: ZIP ${zip} selected. Choose another ZIP or click an area.`;
   renderAll();
 }
 
@@ -579,6 +702,18 @@ async function init() {
   document.getElementById("heat-form").addEventListener("submit", (event) => {
     event.preventDefault();
     loadDate().catch((error) => toast(error.message));
+  });
+  document.getElementById("zip-search").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button");
+    button.disabled = true;
+    try {
+      await locateZip(document.getElementById("zip-search-input").value);
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+    }
   });
   document.getElementById("back-to-states").addEventListener("click", backToStates);
 

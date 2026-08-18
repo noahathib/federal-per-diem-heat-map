@@ -145,7 +145,7 @@ python scripts/build_github_pages.py
 
 The Pages workflow deploys `site/` whenever `main` is pushed. The static site uses relative asset URLs, so it works from either an account Pages site or a project Pages subpath.
 
-The saved `Using the GSA Rate Map URL.html` walkthrough is copied into every static build and linked as **Site guide** in the map header.
+The saved `Using the GSA Rate Map URL.html` walkthrough remains in the repository for later use, but it is not linked or published with the current static map.
 
 ### The dashboard is read-only
 

@@ -247,6 +247,30 @@ def test_national_heatmap_summarizes_only_unambiguous_zip_rates(rate_server):
             "firstLastDayMie": 60.0,
         }
     ]
+    assert payload["cells"] == [
+        {
+            "id": "NY-0-3",
+            "state": "NY",
+            "latitude": 2.5,
+            "longitude": 22.5,
+            "ratedZipCount": 0,
+            "ambiguousZipCount": 1,
+            "lodgingRate": None,
+            "mieRate": None,
+            "firstLastDayMie": None,
+        },
+        {
+            "id": "NY-3-0",
+            "state": "NY",
+            "latitude": 5.0,
+            "longitude": 5.0,
+            "ratedZipCount": 1,
+            "ambiguousZipCount": 0,
+            "lodgingRate": 150.0,
+            "mieRate": 80.0,
+            "firstLastDayMie": 60.0,
+        },
+    ]
 
 
 def test_future_heatmap_uses_labeled_same_season_planning_rates(
@@ -324,6 +348,7 @@ def test_known_zip_returns_bounds(server):
     assert payload["found"] is True
     assert payload["state"] == "NY"
     assert payload["bounds"] == [[0.0, 0.0], [10.0, 10.0]]
+    assert payload["center"] == [5.0, 5.0]
 
 
 def test_zip_without_a_boundary_is_reported_not_errored(server):

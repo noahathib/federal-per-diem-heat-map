@@ -163,7 +163,10 @@
   .masthead-stats { gap: 16px; }
   .stat { text-align: left; }
   .map-toolbar { gap: 8px; padding: 7px 8px; }
-  .map-toolbar .hint { flex-basis: 100%; order: 3; }
+  .map-toolbar .hint { flex-basis: 100%; order: 4; }
+  .zip-search { flex: 1; }
+  .zip-search input { flex: 1; min-width: 0; min-height: 42px; font-size: 16px; }
+  .zip-search button { min-height: 42px; }
   .heat-panel { padding: 14px; }
   .field input,
   .field select { min-height: 44px; font-size: 16px; }

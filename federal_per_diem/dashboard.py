@@ -370,6 +370,7 @@ def database_context(settings: Settings) -> dict[str, Any]:
 
 
 HEATMAP_FIELDS = ("lodgingRate", "mieRate", "firstLastDayMie")
+HEATMAP_GRID_SIZE = 4
 
 
 def _one_year_after(value: date) -> date:
@@ -398,6 +399,88 @@ def _heatmap_range(items: list[dict[str, Any]]) -> dict[str, dict[str, float | N
             "max": max(values) if values else None,
         }
     return ranges
+
+
+def _heatmap_cells(
+    mapped_rows: list[tuple[sqlite3.Row, str]],
+    geo: ZctaGeometryIndex,
+) -> list[dict[str, Any]]:
+    """Aggregate ZIP rates into a coarse spatial grid for the national view."""
+
+    positioned: dict[str, list[tuple[sqlite3.Row, float, float]]] = {}
+    for row, state in mapped_rows:
+        center = geo.center_for_zip(row["zip_code"])
+        if center is None:
+            continue
+        latitude, longitude = center
+        positioned.setdefault(state, []).append((row, latitude, longitude))
+
+    cells: list[dict[str, Any]] = []
+    for state, state_rows in sorted(positioned.items()):
+        latitudes = [latitude for _, latitude, _ in state_rows]
+        longitudes = [longitude for _, _, longitude in state_rows]
+        min_latitude, max_latitude = min(latitudes), max(latitudes)
+        min_longitude, max_longitude = min(longitudes), max(longitudes)
+        latitude_span = max_latitude - min_latitude
+        longitude_span = max_longitude - min_longitude
+
+        grouped: dict[
+            tuple[int, int], list[tuple[sqlite3.Row, float, float]]
+        ] = {}
+        for row, latitude, longitude in state_rows:
+            latitude_cell = (
+                HEATMAP_GRID_SIZE // 2
+                if latitude_span == 0
+                else min(
+                    HEATMAP_GRID_SIZE - 1,
+                    int(
+                        (latitude - min_latitude)
+                        / latitude_span
+                        * HEATMAP_GRID_SIZE
+                    ),
+                )
+            )
+            longitude_cell = (
+                HEATMAP_GRID_SIZE // 2
+                if longitude_span == 0
+                else min(
+                    HEATMAP_GRID_SIZE - 1,
+                    int(
+                        (longitude - min_longitude)
+                        / longitude_span
+                        * HEATMAP_GRID_SIZE
+                    ),
+                )
+            )
+            grouped.setdefault((latitude_cell, longitude_cell), []).append(
+                (row, latitude, longitude)
+            )
+
+        for (latitude_cell, longitude_cell), cell_rows in sorted(grouped.items()):
+            rated_rows = [
+                row for row, _, _ in cell_rows if int(row["candidate_count"]) == 1
+            ]
+            cell: dict[str, Any] = {
+                "id": f"{state}-{latitude_cell}-{longitude_cell}",
+                "state": state,
+                "latitude": round(
+                    sum(latitude for _, latitude, _ in cell_rows) / len(cell_rows), 5
+                ),
+                "longitude": round(
+                    sum(longitude for _, _, longitude in cell_rows) / len(cell_rows), 5
+                ),
+                "ratedZipCount": len(rated_rows),
+                "ambiguousZipCount": len(cell_rows) - len(rated_rows),
+            }
+            for field, column in (
+                ("lodgingRate", "lodging_rate"),
+                ("mieRate", "mie_rate"),
+                ("firstLastDayMie", "first_last_day_mie"),
+            ):
+                values = [float(row[column]) for row in rated_rows]
+                cell[field] = median(values) if values else None
+            cells.append(cell)
+    return cells
 
 
 def heatmap_data(
@@ -564,10 +647,12 @@ def heatmap_data(
             values = [float(row[column]) for row in rated_rows]
             summary[field] = median(values) if values else None
         summaries.append(summary)
+    cells = _heatmap_cells(mapped_rows, geo)
     return {
         **base,
         "states": summaries,
-        "ranges": _heatmap_range(summaries),
+        "cells": cells,
+        "ranges": _heatmap_range(cells),
         "ratedZipCount": sum(item["ratedZipCount"] for item in summaries),
         "ambiguousZipCount": sum(item["ambiguousZipCount"] for item in summaries),
     }

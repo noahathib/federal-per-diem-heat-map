@@ -147,6 +147,33 @@ class ZctaGeometryIndex:
             return None
         return str(self.states[position]) or None
 
+    def center_for_zip(self, zip_code: str) -> tuple[float, float] | None:
+        """Return the latitude/longitude center of a generated ZCTA boundary."""
+
+        position = self._position.get(zip_code)
+        if position is None:
+            return None
+        xmin, ymin, xmax, ymax = (float(value) for value in self.bounds[position])
+        return ((ymin + ymax) / 2.0, (xmin + xmax) / 2.0)
+
+    def zip_centers(self) -> dict[str, tuple[str, float, float]]:
+        """Return drawable ZIP centers for lightweight browser-side lookup."""
+
+        entries: dict[str, tuple[str, float, float]] = {}
+        for position, raw_code in enumerate(self.zip_codes):
+            state = str(self.states[position])
+            if not state:
+                continue
+            xmin, ymin, xmax, ymax = (
+                float(value) for value in self.bounds[position]
+            )
+            entries[str(raw_code)] = (
+                state,
+                (ymin + ymax) / 2.0,
+                (xmin + xmax) / 2.0,
+            )
+        return entries
+
     def zip_entry(self, zip_code: str) -> dict[str, Any] | None:
         """Return the state and bounding box recorded for *zip_code*."""
 

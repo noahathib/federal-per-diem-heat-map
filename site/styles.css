@@ -78,12 +78,6 @@ h1, h2, h3 { margin: 0; font-weight: 620; letter-spacing: -.011em; }
 
 .masthead-link { text-decoration: none; white-space: nowrap; }
 
-.masthead-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .stat { text-align: right; }
 
 .stat-value {
@@ -128,6 +122,39 @@ h1, h2, h3 { margin: 0; font-weight: 620; letter-spacing: -.011em; }
 }
 
 .map-toolbar .hint { flex: 1; }
+
+.zip-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zip-search label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.zip-search input {
+  width: 104px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+}
+
+.zip-search input:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: -1px;
+}
+
+.zip-search button { min-height: 36px; }
 
 #map { min-height: 0; background: #eaf0f4; }
 
