@@ -51,7 +51,8 @@ def test_build_pages_exports_relative_mobile_site(
     assert manifest["rateIntervalCount"] == 3
     html = (output / "index.html").read_text(encoding="utf-8")
     assert 'data-static-map="true"' in html
-    assert 'src="./heatmap.js"' in html
+    assert 'src="./heatmap.js?v=' in html
+    assert 'href="./styles.css?v=' in html
     assert 'href="./vendor/leaflet.css"' in html
     assert "Site guide" not in html
     assert "/api/" not in html

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -32,6 +33,10 @@ def _static_html() -> str:
     """Adapt the shared heat-map page to relative GitHub Pages assets."""
 
     html = (STATIC_ROOT / "heatmap.html").read_text(encoding="utf-8")
+    versions = {
+        filename: hashlib.sha256((STATIC_ROOT / filename).read_bytes()).hexdigest()[:12]
+        for filename in ("styles.css", "heatmap.css", "heatmap.js")
+    }
     replacements = {
         '<html lang="en">': '<html lang="en" data-static-map="true">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">': (
@@ -42,10 +47,12 @@ def _static_html() -> str:
             '<link rel="manifest" href="./manifest.webmanifest">'
         ),
         'href="/static/vendor/leaflet.css"': 'href="./vendor/leaflet.css"',
-        'href="/static/styles.css"': 'href="./styles.css"',
-        'href="/static/heatmap.css"': 'href="./heatmap.css"',
+        'href="/static/styles.css"': f'href="./styles.css?v={versions["styles.css"]}"',
+        'href="/static/heatmap.css"': (
+            f'href="./heatmap.css?v={versions["heatmap.css"]}"'
+        ),
         'src="/static/vendor/leaflet.js"': 'src="./vendor/leaflet.js"',
-        'src="/static/heatmap.js"': 'src="./heatmap.js"',
+        'src="/static/heatmap.js"': f'src="./heatmap.js?v={versions["heatmap.js"]}"',
         '<a class="ghost masthead-link" href="/">Rate dashboard</a>': (
             '<a class="ghost masthead-link" '
             'href="https://www.gsa.gov/travel/plan-a-trip/per-diem-rates" '
