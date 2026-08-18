@@ -78,6 +78,12 @@ h1, h2, h3 { margin: 0; font-weight: 620; letter-spacing: -.011em; }
 
 .masthead-link { text-decoration: none; white-space: nowrap; }
 
+.masthead-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .stat { text-align: right; }
 
 .stat-value {

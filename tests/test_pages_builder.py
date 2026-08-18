@@ -53,8 +53,10 @@ def test_build_pages_exports_relative_mobile_site(
     assert 'data-static-map="true"' in html
     assert 'src="./heatmap.js"' in html
     assert 'href="./vendor/leaflet.css"' in html
+    assert 'href="./Using%20the%20GSA%20Rate%20Map%20URL.html"' in html
     assert "/api/" not in html
     assert (output / ".nojekyll").exists()
+    assert (output / "Using the GSA Rate Map URL.html").exists()
     assert (output / "data" / "geo" / "zcta" / "NY.geojson").exists()
 
     national = json.loads((output / "data" / "national.json").read_text())

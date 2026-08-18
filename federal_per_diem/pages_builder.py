@@ -17,6 +17,9 @@ from .dashboard import STATIC_ROOT, _one_year_after, database_context, heatmap_d
 from .geo_lookup import ZctaGeometryIndex
 
 
+SITE_GUIDE_FILENAME = "Using the GSA Rate Map URL.html"
+
+
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -44,9 +47,13 @@ def _static_html() -> str:
         'src="/static/vendor/leaflet.js"': 'src="./vendor/leaflet.js"',
         'src="/static/heatmap.js"': 'src="./heatmap.js"',
         '<a class="ghost masthead-link" href="/">Rate dashboard</a>': (
+            '<div class="masthead-links">'
+            '<a class="ghost masthead-link" '
+            'href="./Using%20the%20GSA%20Rate%20Map%20URL.html">Site guide</a>'
             '<a class="ghost masthead-link" '
             'href="https://www.gsa.gov/travel/plan-a-trip/per-diem-rates" '
             'target="_blank" rel="noopener noreferrer">GSA source</a>'
+            '</div>'
         ),
         'Loading local database context&hellip;': 'Loading published rate data&hellip;',
     }
@@ -71,6 +78,7 @@ def _prepare_output(output_dir: Path) -> None:
         "heatmap.css",
         "heatmap.js",
         "manifest.webmanifest",
+        SITE_GUIDE_FILENAME,
         ".nojekyll",
     ):
         candidate = output_dir / filename
@@ -82,6 +90,10 @@ def _copy_frontend(output_dir: Path) -> None:
     (output_dir / "index.html").write_text(_static_html(), encoding="utf-8")
     for filename in ("styles.css", "heatmap.css", "heatmap.js"):
         shutil.copy2(STATIC_ROOT / filename, output_dir / filename)
+    guide = PACKAGE_ROOT / SITE_GUIDE_FILENAME
+    if not guide.is_file():
+        raise FileNotFoundError(f"Site guide not found at {guide}")
+    shutil.copy2(guide, output_dir / SITE_GUIDE_FILENAME)
     shutil.copytree(STATIC_ROOT / "vendor", output_dir / "vendor")
     (output_dir / ".nojekyll").write_text("", encoding="utf-8")
     _write_json(

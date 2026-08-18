@@ -145,6 +145,8 @@ python scripts/build_github_pages.py
 
 The Pages workflow deploys `site/` whenever `main` is pushed. The static site uses relative asset URLs, so it works from either an account Pages site or a project Pages subpath.
 
+The saved `Using the GSA Rate Map URL.html` walkthrough is copied into every static build and linked as **Site guide** in the map header.
+
 ### The dashboard is read-only
 
 It can query a rate, estimate a trip, and validate the existing database. Those only read. It cannot refresh rates or rebuild map layers, because those replace published data:
