@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en" data-static-map="true">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14507d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.webmanifest">
+<title>Federal Per Diem Heat Map</title>
+<link rel="stylesheet" href="./vendor/leaflet.css">
+<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./heatmap.css">
+</head>
+<body class="heatmap-body">
+<header class="masthead">
+  <div class="masthead-title">
+    <h1>Federal Per Diem Heat Map</h1>
+    <p id="context-line">Loading published rate data&hellip;</p>
+  </div>
+  <div class="masthead-actions">
+    <div class="masthead-stats" id="masthead-stats"></div>
+    <a class="ghost masthead-link" href="https://www.gsa.gov/travel/plan-a-trip/per-diem-rates" target="_blank" rel="noopener noreferrer">GSA source</a>
+  </div>
+</header>
+
+<main class="layout heatmap-layout">
+  <section class="map-pane">
+    <div class="map-toolbar">
+      <button id="back-to-states" class="ghost" type="button" hidden>&larr; All states</button>
+      <span id="map-hint" class="hint">Select a metric, then click a state for ZIP-level rates.</span>
+      <label class="toggle">
+        <input type="checkbox" id="basemap-toggle">
+        <span>Street basemap</span>
+      </label>
+    </div>
+    <div id="map" role="application" aria-label="United States per diem heat map"></div>
+    <div class="map-legend heat-legend" id="map-legend"></div>
+  </section>
+
+  <aside class="side-pane heat-side">
+    <section class="panel is-active heat-panel">
+      <form id="heat-form" class="form">
+        <div class="field">
+          <label for="metric-input">Rate to map</label>
+          <select id="metric-input">
+            <option value="lodging">Lodging / night</option>
+            <option value="mie">M&amp;IE / day</option>
+            <option value="firstLast">First &amp; last day M&amp;IE</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="date-input">Travel date</label>
+          <input id="date-input" type="date" required>
+          <p id="date-help" class="field-help">The date matters because lodging rates can be seasonal.</p>
+        </div>
+        <button type="submit" class="primary">Update map</button>
+      </form>
+
+      <div id="scale-panel" class="heat-section" aria-live="polite"></div>
+      <div id="summary-panel" class="heat-section" aria-live="polite"></div>
+      <div id="selection-panel" class="heat-section" aria-live="polite"></div>
+
+      <div class="heat-note">
+        <h2>How to read this map</h2>
+        <p>
+          The national view colors each state by the median of its unambiguous ZIP
+          rates. Click a state to see the exact value for each ZIP area.
+        </p>
+        <p>
+          Purple ZIPs intersect multiple official rate localities. They stay out of
+          the gradient because a ZIP alone cannot identify one correct rate.
+        </p>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="./vendor/leaflet.js"></script>
+<script src="./heatmap.js"></script>
+</body>
+</html>

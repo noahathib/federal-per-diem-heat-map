@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.federal-per-diem.dashboard</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/NThibodeaux/Documents/DevOps/GSA_Rate/.venv/bin/federal-per-diem-dashboard</string>
+    <string>--host</string>
+    <string>0.0.0.0</string>
+    <string>--port</string>
+    <string>8765</string>
+    <string>--verbose</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/NThibodeaux/Documents/DevOps/GSA_Rate</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/NThibodeaux/Library/Logs/federal-per-diem-dashboard.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/NThibodeaux/Library/Logs/federal-per-diem-dashboard.log</string>
+</dict>
+</plist>

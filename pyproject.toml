@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "federal-per-diem"
+version = "1.0.0"
+description = "A validated local database of federal per diem rates by ZIP code and date"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Federal Per Diem Contributors"}]
+dependencies = [
+  "openpyxl>=3.1,<4",
+  "pandas>=2.2,<4",
+  "requests>=2.32,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "pytest-cov>=5,<8",
+]
+
+[project.scripts]
+federal-per-diem-refresh = "federal_per_diem.cli:refresh_main"
+federal-per-diem-query = "federal_per_diem.cli:query_main"
+federal-per-diem-validate = "federal_per_diem.cli:validate_main"
+federal-per-diem-build-map = "federal_per_diem.cli:build_map_main"
+federal-per-diem-dashboard = "federal_per_diem.cli:dashboard_main"
+
+[tool.setuptools.packages.find]
+include = ["federal_per_diem*"]
+
+[tool.setuptools.package-data]
+federal_per_diem = [
+  "static/*.html",
+  "static/*.css",
+  "static/*.js",
+  "static/vendor/*.js",
+  "static/vendor/*.css",
+  "static/vendor/images/*.png",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+

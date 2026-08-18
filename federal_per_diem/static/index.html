@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Federal Per Diem Dashboard</title>
+<link rel="stylesheet" href="/static/vendor/leaflet.css">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-title">
+    <h1>Federal Per Diem</h1>
+    <p id="context-line">Loading local database context&hellip;</p>
+  </div>
+  <div class="masthead-actions">
+    <div class="masthead-stats" id="masthead-stats"></div>
+    <a class="ghost masthead-link" href="/heatmap">Rate heat map</a>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="map-pane">
+    <div class="map-toolbar">
+      <button id="back-to-states" class="ghost" hidden>&larr; All states</button>
+      <span id="map-hint" class="hint">Click a state to load its ZIP Code Tabulation Areas.</span>
+      <label class="toggle">
+        <input type="checkbox" id="basemap-toggle">
+        <span>Street basemap</span>
+      </label>
+    </div>
+    <div id="map" role="application" aria-label="United States ZIP code map"></div>
+    <div class="map-legend" id="map-legend"></div>
+  </section>
+
+  <aside class="side-pane">
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-panel="panel-rate" role="tab">Rate</button>
+      <button class="tab" data-panel="panel-trip" role="tab">Trip</button>
+      <button class="tab" data-panel="panel-ops" role="tab">Database</button>
+    </nav>
+
+    <section id="panel-rate" class="panel is-active" role="tabpanel">
+      <form id="rate-form" class="form">
+        <div class="field">
+          <label for="zip-input">ZIP code</label>
+          <input id="zip-input" name="zip" inputmode="numeric" autocomplete="postal-code"
+                 placeholder="19103" maxlength="10" required>
+          <p class="field-help">Type any five-digit ZIP or ZIP+4, or click the map.</p>
+        </div>
+        <div class="field">
+          <label for="date-input">Travel date</label>
+          <input id="date-input" name="date" type="date" required>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="explain-input" checked>
+          <span>Include the audit explanation</span>
+        </label>
+        <button type="submit" class="primary">Look up rate</button>
+      </form>
+      <div id="rate-result" class="result"></div>
+    </section>
+
+    <section id="panel-trip" class="panel" role="tabpanel">
+      <form id="trip-form" class="form">
+        <div class="field">
+          <label for="trip-zip">ZIP code</label>
+          <input id="trip-zip" inputmode="numeric" placeholder="19103" maxlength="10" required>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="trip-start">Start</label>
+            <input id="trip-start" type="date" required>
+          </div>
+          <div class="field">
+            <label for="trip-end">End</label>
+            <input id="trip-end" type="date" required>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="trip-travelers">Travelers</label>
+            <input id="trip-travelers" type="number" min="1" step="1" value="1" required>
+          </div>
+          <div class="field">
+            <label for="trip-mileage">Miles <span class="optional">optional</span></label>
+            <input id="trip-mileage" type="number" min="0" step="0.1" placeholder="0">
+          </div>
+        </div>
+        <div class="field">
+          <label for="trip-mileage-rate">Mileage rate <span class="optional">required with miles</span></label>
+          <input id="trip-mileage-rate" type="number" min="0" step="0.001" placeholder="0.000">
+          <p class="field-help">No mileage rate is built in; supply the rate in force for the trip.</p>
+        </div>
+        <button type="submit" class="primary">Estimate trip</button>
+      </form>
+      <div id="trip-result" class="result"></div>
+    </section>
+
+    <section id="panel-ops" class="panel" role="tabpanel">
+      <div class="form">
+        <p class="field-help">
+          Check the database this dashboard is reading. Validation only reads; it
+          changes nothing.
+        </p>
+        <button type="button" class="secondary" data-action="validate">Validate database</button>
+        <div id="ops-result" class="result"></div>
+        <hr>
+        <h3 class="section-title">Run these yourself</h3>
+        <p class="field-help">
+          Refreshing rates and rebuilding map layers replace published data, so
+          they are terminal-only and cannot be started from this page. Run them
+          from the project directory, then reload the dashboard.
+        </p>
+        <div id="manual-commands"></div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<section class="terminal-pane">
+  <div class="terminal-head">
+    <h2>Command transcript</h2>
+    <span class="hint">Every panel above runs one of these read-only commands as a child process.</span>
+    <button id="clear-terminal" class="ghost">Clear</button>
+  </div>
+  <div id="terminal" class="terminal" aria-live="polite"></div>
+</section>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/static/vendor/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
