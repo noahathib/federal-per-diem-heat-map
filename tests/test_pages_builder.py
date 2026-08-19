@@ -69,6 +69,8 @@ def test_build_pages_exports_relative_mobile_site(
     assert "state-gradient-layer" in script
     assert "leaflet-zoom-animated" in script
     assert 'map.on("zoomanim", this._animateZoom, this)' in script
+    assert 'classList.toggle("map-state-mode"' in script
+    assert '"View full details"' in script
     assert "L.circleMarker" not in script
 
     national = json.loads((output / "data" / "national.json").read_text())

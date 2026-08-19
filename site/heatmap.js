@@ -629,13 +629,7 @@ function renderSelection() {
   target.appendChild(el("h2", null, "Selected location"));
   const card = el("div", "heat-selection");
   const head = el("div", "heat-selection-head");
-  const title = selection.municipal
-    ? selection.municipal.properties.displayName
-    : selection.zip
-      ? `ZIP / ZCTA ${selection.zip.properties.zip}`
-      : selection.county
-        ? selection.county.properties.displayName
-        : "Map location";
+  const title = selectionTitle(selection);
   head.appendChild(el("strong", null, title));
   const locationLine = [
     selection.county && selection.county.properties.displayName,
@@ -929,7 +923,13 @@ async function loadDate() {
 }
 
 function watchMapSize() {
-  const sync = () => app.map.invalidateSize({ animate: false, pan: false });
+  const sync = () => {
+    app.map.invalidateSize({ animate: false, pan: false });
+    if (app.selection) {
+      app.map.closePopup();
+      requestAnimationFrame(showSelectionPopup);
+    }
+  };
   if (typeof ResizeObserver === "function") {
     app.sizeObserver = new ResizeObserver(sync);
     app.sizeObserver.observe(app.map.getContainer());
@@ -951,7 +951,11 @@ function buildStatesLayer(geojson) {
     onEachFeature(feature, layer) {
       layer.bindTooltip(stateTooltip(feature), { sticky: true, className: "zcta-tip" });
       layer.on("click", (event) => {
-        L.DomEvent.stopPropagation(event);
+        if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+        if (app.mode === "state") {
+          selectPoint(event.latlng);
+          return;
+        }
         if (!feature.properties.hasLayer) {
           toast(`${feature.properties.name} has no generated ZIP layer.`);
           return;
@@ -1084,6 +1088,53 @@ function stateNameForSelection(...features) {
   return state ? state.properties.name : app.activeState;
 }
 
+function selectionTitle(selection) {
+  if (!selection) return "Map location";
+  if (selection.municipal) return selection.municipal.properties.displayName;
+  if (selection.zip) return `ZIP / ZCTA ${selection.zip.properties.zip}`;
+  if (selection.county) return selection.county.properties.displayName;
+  return "Map location";
+}
+
+function showSelectionPopup() {
+  if (!app.selection || !app.selection.point) return;
+  const selection = app.selection;
+  const entry = selection.entry;
+  const content = el("div", "map-selection-popup");
+  content.appendChild(el("strong", null, selectionTitle(selection)));
+  const geography = [
+    selection.county && selection.county.properties.displayName,
+    selection.stateName,
+  ].filter(Boolean).join(", ");
+  if (geography) content.appendChild(el("span", null, geography));
+  const rate = entry && entry.status !== "ambiguous"
+    ? `${money(entry.lodgingRate)} lodging · ${money(entry.mieRate)} M&IE`
+    : entry && entry.status === "ambiguous"
+      ? "Multiple published rate localities"
+      : "No published rate for this point";
+  content.appendChild(el("span", "map-selection-rate", rate));
+  const details = el("button", "ghost map-selection-details", "View full details");
+  details.type = "button";
+  details.addEventListener("click", () => {
+    document.getElementById("selection-panel").scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  });
+  content.appendChild(details);
+  L.popup({ closeButton: true, maxWidth: 300, className: "selection-map-popup" })
+    .setLatLng(selection.point)
+    .setContent(content)
+    .openOn(app.map);
+}
+
+function setMapInteractionMode(mode) {
+  if (!app.map) return;
+  const container = app.map.getContainer();
+  container.classList.toggle("map-national-mode", mode === "national");
+  container.classList.toggle("map-state-mode", mode === "state");
+}
+
 function buildPointSelection(point) {
   const zip = containingFeatures("zcta", point)[0] || null;
   const counties = containingFeatures("counties", point);
@@ -1176,6 +1227,7 @@ function selectPoint(point) {
   renderAll();
   const features = selectionFeatures(app.highlighted);
   if (features.length) highlightSelection(app.highlighted);
+  showSelectionPopup();
 }
 
 async function selectState(code) {
@@ -1194,8 +1246,10 @@ async function selectState(code) {
     .forEach((layer) => setLayerOnMap(layer, false));
   app.activeState = code;
   app.mode = "state";
+  setMapInteractionMode("state");
   app.selectedZip = null;
   app.selection = null;
+  app.map.closePopup();
   app.selectionLayer.clearLayers();
   if (app.statesLayer) app.statesLayer.eachLayer((layer) => layer.closeTooltip());
   setStateData(data);
@@ -1223,7 +1277,7 @@ async function selectState(code) {
   if (bounds.isValid()) app.map.fitBounds(bounds, { padding: [18, 18], animate: false });
   document.getElementById("back-to-states").hidden = false;
   document.getElementById("map-hint").textContent =
-    `${code}: click anywhere to identify rate and jurisdiction.`;
+    `${code}: click or tap anywhere to identify rate and jurisdiction.`;
   renderAll();
 }
 
@@ -1277,7 +1331,10 @@ async function locateZip(raw) {
   document.getElementById("map-hint").textContent =
     `${entry.state}: ZIP ${zip} selected. Choose another ZIP or click an area.`;
   renderAll();
-  if (app.selection) highlightSelection("zip");
+  if (app.selection) {
+    highlightSelection("zip");
+    showSelectionPopup();
+  }
 }
 
 function backToStates() {
@@ -1297,6 +1354,8 @@ function backToStates() {
   app.selectedZip = null;
   app.selection = null;
   app.mode = "national";
+  app.map.closePopup();
+  setMapInteractionMode("national");
   app.map.setView(NATIONAL_VIEW.center, NATIONAL_VIEW.zoom, { animate: false });
   document.getElementById("back-to-states").hidden = true;
   document.getElementById("map-hint").textContent = "Click a state for local rates and geography.";
@@ -1370,6 +1429,7 @@ async function init() {
     maxZoom: 17,
     worldCopyJump: false,
   }).setView(NATIONAL_VIEW.center, NATIONAL_VIEW.zoom);
+  setMapInteractionMode("national");
   [
     ["stateGradientPane", 350],
     ["rateHeatPane", 360],
