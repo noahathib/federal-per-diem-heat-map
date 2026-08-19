@@ -1133,6 +1133,12 @@ function setMapInteractionMode(mode) {
   const container = app.map.getContainer();
   container.classList.toggle("map-national-mode", mode === "national");
   container.classList.toggle("map-state-mode", mode === "state");
+  const statePane = app.map.getPane("stateBoundaryPane");
+  if (statePane) statePane.style.pointerEvents = mode === "national" ? "auto" : "none";
+  ["rateHeatPane", "countyPane", "municipalityPane", "rateAreaPane"].forEach((name) => {
+    const pane = app.map.getPane(name);
+    if (pane) pane.style.pointerEvents = mode === "state" ? "auto" : "none";
+  });
 }
 
 function buildPointSelection(point) {
@@ -1429,7 +1435,6 @@ async function init() {
     maxZoom: 17,
     worldCopyJump: false,
   }).setView(NATIONAL_VIEW.center, NATIONAL_VIEW.zoom);
-  setMapInteractionMode("national");
   [
     ["stateGradientPane", 350],
     ["rateHeatPane", 360],
@@ -1444,6 +1449,7 @@ async function init() {
   });
   app.map.getPane("stateGradientPane").style.pointerEvents = "none";
   app.map.getPane("selectionPane").style.pointerEvents = "none";
+  setMapInteractionMode("national");
   app.renderers = {
     rateHeat: L.canvas({ padding: 0.4, pane: "rateHeatPane" }),
     stateBoundary: L.canvas({ padding: 0.4, pane: "stateBoundaryPane" }),
