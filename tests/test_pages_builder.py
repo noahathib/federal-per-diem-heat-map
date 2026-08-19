@@ -61,6 +61,10 @@ def test_build_pages_exports_relative_mobile_site(
     assert (output / ".nojekyll").exists()
     assert not (output / "Using the GSA Rate Map URL.html").exists()
     assert (output / "data" / "geo" / "zcta" / "NY.geojson").exists()
+    assert (output / "data" / "geo" / "counties" / "NY.geojson").exists()
+    assert (output / "data" / "geo" / "municipal" / "NY.geojson").exists()
+    assert (output / "data" / "geo" / "localities" / "NY.geojson").exists()
+    assert (output / "data" / "geo" / "manifest.json").exists()
     script = (output / "heatmap.js").read_text(encoding="utf-8")
     assert "state-gradient-layer" in script
     assert "leaflet-zoom-animated" in script
@@ -91,3 +95,4 @@ def test_build_pages_exports_relative_mobile_site(
     state = json.loads((output / "data" / "rates" / "NY.json").read_text())
     assert set(state["zips"]) == {"10001", "10002"}
     assert len(state["zips"]["10002"]) == 2
+    assert state["zips"]["10001"][0][7:] == ["101", None]

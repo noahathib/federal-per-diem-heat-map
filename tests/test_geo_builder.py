@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from federal_per_diem.exceptions import SchemaChangeError
 from federal_per_diem.geo_builder import (
+    _display_area_name,
+    county_defined_locality_specs,
     polygon_to_geometry,
     simplify_ring,
+    zcta_relationships,
     zcta_state_assignment,
 )
 from federal_per_diem.shapefile_reader import Polygon
@@ -181,3 +185,84 @@ def test_missing_crosswalk_column_is_a_schema_change(tmp_path):
     path.write_text("GEOID_ZCTA5_20|GEOID_COUNTY_20\n12345|42001\n", encoding="utf-8")
     with pytest.raises(SchemaChangeError, match="AREALAND_PART"):
         zcta_state_assignment(path, {"42": "PA"})
+
+
+def test_zcta_relationships_preserve_every_intersection_in_area_order(tmp_path):
+    path = tmp_path / "relationships.txt"
+    path.write_text(
+        "GEOID_ZCTA5_20|GEOID_COUNTY_20|AREALAND_PART|AREAWATER_PART\n"
+        "19054|42017|90|10\n"
+        "19054|34021|20|0\n"
+        "19054|42017|5|0\n",
+        encoding="utf-8",
+    )
+    assert zcta_relationships(path, "GEOID_COUNTY_20") == {
+        "19054": ["42017", "34021"]
+    }
+
+
+def test_zcta_relationships_reject_malformed_schema(tmp_path):
+    path = tmp_path / "relationships.txt"
+    path.write_text("GEOID_ZCTA5_20|GEOID_COUNTY_20\n19054|42017\n")
+    with pytest.raises(SchemaChangeError, match="AREALAND_PART"):
+        zcta_relationships(path, "GEOID_COUNTY_20")
+
+
+def test_census_area_display_name_preserves_published_type():
+    assert _display_area_name("Falls", "Falls township") == (
+        "Falls Township",
+        "Township",
+    )
+    assert _display_area_name("Levittown", "Levittown CDP") == (
+        "Levittown CDP",
+        "CDP",
+    )
+
+
+def test_only_complete_county_gsa_definitions_receive_locality_specs():
+    counties = {
+        "PA": [
+            {
+                "type": "Feature",
+                "id": "42017",
+                "properties": {
+                    "geoid": "42017",
+                    "name": "Bucks",
+                    "displayName": "Bucks County",
+                },
+                "geometry": {"type": "Polygon", "coordinates": []},
+            },
+            {
+                "type": "Feature",
+                "id": "42043",
+                "properties": {
+                    "geoid": "42043",
+                    "name": "Dauphin",
+                    "displayName": "Dauphin County",
+                },
+                "geometry": {"type": "Polygon", "coordinates": []},
+            },
+        ]
+    }
+    frame = pd.DataFrame(
+        [
+            {
+                "DestinationID": "313",
+                "Name": "Bucks",
+                "County": "Bucks County, PA",
+                "LocationDefined": "Bucks",
+                "State": "PA",
+            },
+            {
+                "DestinationID": "312",
+                "Name": "Harrisburg",
+                "County": "Dauphin County, PA",
+                "LocationDefined": "Dauphin County excluding Hershey",
+                "State": "PA",
+            },
+        ]
+    )
+    specs = county_defined_locality_specs(frame, counties)
+    assert [(item["destinationId"], item["definition"]) for item in specs] == [
+        ("313", "Bucks")
+    ]

@@ -126,6 +126,12 @@ def build_map_artifacts(geo_dir, shapefile_path):
     (geo_dir / "zcta" / "NY.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
     )
+    for layer in ("counties", "municipal", "localities"):
+        (geo_dir / layer).mkdir(parents=True)
+        (geo_dir / layer / "NY.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": []}),
+            encoding="utf-8",
+        )
     return geo_dir
 
 
@@ -200,4 +206,3 @@ def make_rate(
         source_sha256=source_sha,
         is_standard=standard,
     )
-

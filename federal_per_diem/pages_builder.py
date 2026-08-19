@@ -59,6 +59,9 @@ def _static_html() -> str:
             'target="_blank" rel="noopener noreferrer">GSA source</a>'
         ),
         'Loading local database context&hellip;': 'Loading published rate data&hellip;',
+        'href="/api/context">Geography provenance': (
+            'href="./data/geo/manifest.json">Geography provenance'
+        ),
     }
     for original, replacement in replacements.items():
         if original not in html:
@@ -116,7 +119,7 @@ def _export_state_rates(
     """Export compact interval arrays, split by drawable display state."""
 
     query = """
-        SELECT l.zip_code, l.locality, l.is_standard,
+        SELECT l.zip_code, l.locality, l.is_standard, l.destination_id, l.county,
                r.effective_start, r.effective_end,
                r.lodging_rate, r.mie_rate, r.first_last_day_mie
         FROM rates r
@@ -143,6 +146,8 @@ def _export_state_rates(
                     float(row["lodging_rate"]),
                     float(row["mie_rate"]),
                     float(row["first_last_day_mie"]),
+                    row["destination_id"],
+                    row["county"],
                 ]
             )
 
@@ -223,9 +228,14 @@ def build_pages(
             settings.geo_dir / "states.geojson",
             output / "data" / "geo" / "states.geojson",
         )
-        shutil.copytree(
-            settings.geo_dir / "zcta",
-            output / "data" / "geo" / "zcta",
+        for layer_name in ("zcta", "counties", "municipal", "localities"):
+            shutil.copytree(
+                settings.geo_dir / layer_name,
+                output / "data" / "geo" / layer_name,
+            )
+        shutil.copy2(
+            settings.geo_dir / "manifest.json",
+            output / "data" / "geo" / "manifest.json",
         )
 
         snapshots: dict[str, dict[str, Any]] = {}
@@ -261,6 +271,8 @@ def build_pages(
                 "available": True,
                 "states": geo.state_summaries(),
                 "zctaCount": geo.manifest.get("zcta_count"),
+                "boundaryLayers": geo.manifest.get("boundary_layers", {}),
+                "provenance": "./data/geo/manifest.json",
             },
         }
         _write_json(output / "data" / "context.json", context)

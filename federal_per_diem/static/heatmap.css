@@ -11,6 +11,69 @@
   padding: 18px;
 }
 
+.layer-panel {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.layer-panel summary {
+  padding: 10px 12px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  cursor: pointer;
+}
+
+.layer-panel[open] summary { border-bottom: 1px solid var(--line-soft); }
+
+.layer-panel-body {
+  display: grid;
+  gap: 12px;
+  padding: 11px 12px 12px;
+}
+
+.layer-panel fieldset {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.layer-panel legend {
+  margin-bottom: 4px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.layer-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.layer-toggle input { margin: 3px 0 0; accent-color: var(--brand); }
+.layer-toggle strong { display: block; font-size: 12.5px; font-weight: 580; }
+.layer-toggle small { display: block; color: var(--ink-faint); font-size: 10.5px; }
+
+.layer-status {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
 .heat-section {
   margin-top: 18px;
   padding-top: 16px;
@@ -111,11 +174,66 @@
 }
 
 .heat-selection-head strong {
+  display: block;
   font-size: 18px;
   font-variant-numeric: tabular-nums;
 }
 
+.heat-selection-head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+}
+
 .heat-selection-body { padding: 10px 12px; }
+
+.selection-group + .selection-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.selection-group h3 {
+  margin: 0 0 6px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.selection-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.selection-grid dt { color: var(--ink-soft); }
+.selection-grid dd { margin: 0; text-align: right; font-weight: 600; }
+
+.selection-message {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.selection-message strong { color: var(--ink); }
+
+.selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.selection-actions button[aria-pressed="true"] {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-tint);
+}
 
 .heat-selection-value {
   display: block;
@@ -147,6 +265,13 @@
 .heat-tooltip strong { display: block; }
 .heat-tooltip span { display: block; color: #4a5763; }
 
+.boundary-line {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid currentColor;
+}
+
 @media (max-width: 1040px) {
   .heatmap-body { grid-template-rows: auto auto; }
   .heat-side { grid-template-rows: auto; }
@@ -168,6 +293,7 @@
   .zip-search input { flex: 1; min-width: 0; min-height: 42px; font-size: 16px; }
   .zip-search button { min-height: 42px; }
   .heat-panel { padding: 14px; }
+  .layer-panel:not([open]) { margin-top: 12px; }
   .field input,
   .field select { min-height: 44px; font-size: 16px; }
   .primary { min-height: 44px; }

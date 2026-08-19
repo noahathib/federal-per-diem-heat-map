@@ -511,6 +511,9 @@ def heatmap_data(
         SELECT l.zip_code, COUNT(*) AS candidate_count,
                CASE WHEN COUNT(*) = 1 THEN MIN(l.locality) END AS locality,
                CASE WHEN COUNT(*) = 1 THEN MIN(l.is_standard) END AS is_standard,
+               CASE WHEN COUNT(*) = 1 THEN MIN(l.destination_id) END AS destination_id,
+               CASE WHEN COUNT(*) = 1 THEN MIN(l.county) END AS county,
+               GROUP_CONCAT(l.locality, CHAR(31)) AS candidate_localities,
                CASE WHEN COUNT(*) = 1
                     THEN MIN(CAST(r.lodging_rate AS REAL)) END AS lodging_rate,
                CASE WHEN COUNT(*) = 1
@@ -615,6 +618,13 @@ def heatmap_data(
                     "candidateCount": int(row["candidate_count"]),
                     "locality": row["locality"],
                     "isStandard": bool(row["is_standard"]) if not ambiguous else None,
+                    "destinationId": row["destination_id"],
+                    "county": row["county"],
+                    "candidates": (
+                        sorted(set((row["candidate_localities"] or "").split("\x1f")))
+                        if ambiguous
+                        else []
+                    ),
                     "lodgingRate": row["lodging_rate"],
                     "mieRate": row["mie_rate"],
                     "firstLastDayMie": row["first_last_day_mie"],
@@ -870,8 +880,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._api_heatmap(request.query)
             elif path == "/api/geo/states":
                 self._api_state_layer()
-            elif path.startswith("/api/geo/zcta/"):
-                self._api_zcta_layer(path.rsplit("/", 1)[-1])
+            elif path.startswith("/api/geo/"):
+                parts = path.split("/")
+                if len(parts) == 5:
+                    self._api_detail_layer(parts[3], parts[4])
+                else:
+                    self._error(HTTPStatus.NOT_FOUND, f"No route for {path}")
             elif path.startswith("/api/zip/"):
                 self._api_zip(path.rsplit("/", 1)[-1])
             elif path.startswith("/api/job/"):
@@ -1032,11 +1046,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._serve_geojson(self.settings.geo_dir / "states.geojson")
 
     def _api_zcta_layer(self, state: str) -> None:
+        self._api_detail_layer("zcta", state)
+
+    def _api_detail_layer(self, layer_name: str, state: str) -> None:
+        allowed = {"zcta", "counties", "municipal", "localities"}
+        if layer_name not in allowed:
+            self._error(HTTPStatus.NOT_FOUND, f"Unknown geographic layer {layer_name!r}")
+            return
         code = state.upper().removesuffix(".GEOJSON")
-        if not STATE_PATTERN.match(code):
+        if not STATE_PATTERN.fullmatch(code):
             self._error(HTTPStatus.BAD_REQUEST, f"Invalid state code {state!r}")
             return
-        self._serve_geojson(self.settings.geo_dir / "zcta" / f"{code}.geojson")
+        self._serve_geojson(self.settings.geo_dir / layer_name / f"{code}.geojson")
 
     def _api_zip(self, raw: str) -> None:
         server: DashboardServer = self.server  # type: ignore[assignment]

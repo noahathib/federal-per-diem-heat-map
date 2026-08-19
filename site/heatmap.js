@@ -22,6 +22,17 @@ const COLORS = {
   ambiguous: "#73558f",
   stateContext: "#d3dbe2",
   selected: "#151a20",
+  locality: "#6f2a8e",
+  county: "#24384a",
+  municipal: "#0a6b62",
+  zcta: "#ffffff",
+};
+
+const LAYER_ZOOM = {
+  localities: 6,
+  counties: 7,
+  municipal: 9,
+  zcta: 9,
 };
 
 const app = {
@@ -30,13 +41,40 @@ const app = {
   mode: "national",
   activeState: null,
   selectedZip: null,
+  selection: null,
+  highlighted: "zip",
   map: null,
   renderer: null,
+  renderers: {},
   statesLayer: null,
   gradientLayer: null,
   zctaLayer: null,
+  countyLayer: null,
+  municipalLayer: null,
+  localityLayer: null,
+  selectionLayer: null,
   statesGeojson: null,
-  stateGeoCache: new Map(),
+  geoCache: {
+    zcta: new Map(),
+    counties: new Map(),
+    municipal: new Map(),
+    localities: new Map(),
+  },
+  spatialIndexes: {},
+  featureLayers: {
+    zcta: new Map(),
+    counties: new Map(),
+    municipal: new Map(),
+    localities: new Map(),
+  },
+  layerState: {
+    rate: true,
+    localities: true,
+    municipal: true,
+    zcta: false,
+    counties: false,
+    basemap: false,
+  },
   nationalData: null,
   stateData: null,
   nationalByState: new Map(),
@@ -145,14 +183,16 @@ function stateStyle(feature) {
       color: "#ffffff",
       weight: 0.9,
       fillColor: COLORS.stateContext,
-      fillOpacity: 0.55,
+      fillOpacity: 0,
     };
   }
   return {
     color: "#ffffff",
     weight: 1.15,
     fillColor: "#ffffff",
-    fillOpacity: feature.properties.hasLayer ? 0.015 : 0.2,
+    fillOpacity: app.layerState.rate
+      ? (feature.properties.hasLayer ? 0.015 : 0.2)
+      : 0.06,
   };
 }
 
@@ -290,7 +330,12 @@ function createStateGradientLayer() {
       this._frame = null;
       const canvas = this._canvas;
       if (!canvas) return;
-      if (app.mode !== "national" || !app.nationalData || !app.statesGeojson) {
+      if (
+        !app.layerState.rate ||
+        app.mode !== "national" ||
+        !app.nationalData ||
+        !app.statesGeojson
+      ) {
         canvas.style.display = "none";
         return;
       }
@@ -342,19 +387,20 @@ function createStateGradientLayer() {
 function zctaStyle(feature) {
   const zip = feature.properties.zip;
   const entry = app.stateByZip.get(zip);
-  const selected = zip === app.selectedZip;
   let fillColor = COLORS.noRate;
-  let fillOpacity = 0.35;
+  let fillOpacity = app.layerState.rate ? 0.35 : 0;
   if (entry && entry.status === "ambiguous") {
     fillColor = COLORS.ambiguous;
-    fillOpacity = 0.72;
+    fillOpacity = app.layerState.rate ? 0.72 : 0;
   } else if (entry) {
     fillColor = heatColor(entry[currentMetric().field], currentRange());
-    fillOpacity = 0.78;
+    fillOpacity = app.layerState.rate ? 0.78 : 0;
   }
+  const showBoundary = app.layerState.zcta && app.map.getZoom() >= LAYER_ZOOM.zcta;
   return {
-    color: selected ? COLORS.selected : "#ffffff",
-    weight: selected ? 2.3 : 0.45,
+    color: COLORS.zcta,
+    opacity: showBoundary ? 0.7 : 0,
+    weight: showBoundary ? 0.65 : 0,
     fillColor,
     fillOpacity,
   };
@@ -373,6 +419,115 @@ function zctaTooltip(feature) {
   ]);
 }
 
+function boundaryStyle(kind) {
+  if (kind === "localities") {
+    return { color: COLORS.locality, opacity: 0.92, weight: 2.3, fillOpacity: 0 };
+  }
+  if (kind === "counties") {
+    return { color: COLORS.county, opacity: 0.72, weight: 1.65, fillOpacity: 0 };
+  }
+  return { color: COLORS.municipal, opacity: 0.68, weight: 1, fillOpacity: 0 };
+}
+
+function geometryBounds(geometry) {
+  const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+  const visit = (coordinates) => {
+    if (typeof coordinates[0] === "number") {
+      bounds[0] = Math.min(bounds[0], coordinates[0]);
+      bounds[1] = Math.min(bounds[1], coordinates[1]);
+      bounds[2] = Math.max(bounds[2], coordinates[0]);
+      bounds[3] = Math.max(bounds[3], coordinates[1]);
+      return;
+    }
+    coordinates.forEach(visit);
+  };
+  visit(geometry.coordinates);
+  return bounds;
+}
+
+function pointOnSegment(x, y, start, end) {
+  const cross = (x - start[0]) * (end[1] - start[1]) -
+    (y - start[1]) * (end[0] - start[0]);
+  if (Math.abs(cross) > 1e-10) return false;
+  return x >= Math.min(start[0], end[0]) - 1e-10 &&
+    x <= Math.max(start[0], end[0]) + 1e-10 &&
+    y >= Math.min(start[1], end[1]) - 1e-10 &&
+    y <= Math.max(start[1], end[1]) + 1e-10;
+}
+
+function pointInRing(x, y, ring) {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const start = ring[previous];
+    const end = ring[index];
+    if (pointOnSegment(x, y, start, end)) return true;
+    const crosses = (end[1] > y) !== (start[1] > y) &&
+      x < ((start[0] - end[0]) * (y - end[1])) / (start[1] - end[1]) + end[0];
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(x, y, polygon) {
+  if (!polygon.length || !pointInRing(x, y, polygon[0])) return false;
+  return !polygon.slice(1).some((ring) => pointInRing(x, y, ring));
+}
+
+function pointInGeometry(longitude, latitude, geometry) {
+  const polygons = geometry.type === "Polygon"
+    ? [geometry.coordinates]
+    : geometry.coordinates;
+  return polygons.some((polygon) => pointInPolygon(longitude, latitude, polygon));
+}
+
+function createSpatialIndex(geojson, cellSize = 0.5) {
+  const buckets = new Map();
+  const all = geojson.features || [];
+  all.forEach((feature) => {
+    const bounds = geometryBounds(feature.geometry);
+    feature._mapBounds = bounds;
+    const minX = Math.floor(bounds[0] / cellSize);
+    const maxX = Math.floor(bounds[2] / cellSize);
+    const minY = Math.floor(bounds[1] / cellSize);
+    const maxY = Math.floor(bounds[3] / cellSize);
+    for (let x = minX; x <= maxX; x += 1) {
+      for (let y = minY; y <= maxY; y += 1) {
+        const key = `${x}:${y}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(feature);
+      }
+    }
+  });
+  return {
+    containing(latitude, longitude) {
+      const key = `${Math.floor(longitude / cellSize)}:${Math.floor(latitude / cellSize)}`;
+      return (buckets.get(key) || []).filter((feature) => {
+        const bounds = feature._mapBounds;
+        return longitude >= bounds[0] && longitude <= bounds[2] &&
+          latitude >= bounds[1] && latitude <= bounds[3] &&
+          pointInGeometry(longitude, latitude, feature.geometry);
+      });
+    },
+  };
+}
+
+function featureTooltip(feature, kind) {
+  const properties = feature.properties;
+  if (kind === "localities") {
+    return tooltipNode(properties.locality, [
+      properties.definition,
+      "GSA county-defined rate area",
+    ]);
+  }
+  if (kind === "counties") {
+    return tooltipNode(properties.displayName, [properties.stateName]);
+  }
+  return tooltipNode(properties.displayName, [
+    properties.county || properties.stateName,
+    `Census ${properties.type}`,
+  ]);
+}
+
 function appendScale(target, range) {
   const scale = el("div", "heat-scale");
   const labels = el("div", "heat-scale-labels");
@@ -388,6 +543,14 @@ function addLegendKey(target, color, label) {
   target.appendChild(row);
 }
 
+function addBoundaryKey(target, color, label) {
+  const row = el("div", "legend-key");
+  const line = el("span", "boundary-line");
+  line.style.color = color;
+  row.append(line, document.createTextNode(label));
+  target.appendChild(row);
+}
+
 function renderLegend() {
   const legend = document.getElementById("map-legend");
   legend.replaceChildren();
@@ -395,6 +558,18 @@ function renderLegend() {
   appendScale(legend, currentRange());
   if (app.mode === "state") addLegendKey(legend, COLORS.ambiguous, "Multiple rate localities");
   addLegendKey(legend, COLORS.noRate, "No single rate");
+  if (app.mode === "state") {
+    const zoom = app.map.getZoom();
+    if (app.layerState.localities && zoom >= LAYER_ZOOM.localities) {
+      addBoundaryKey(legend, COLORS.locality, "County-defined GSA area");
+    }
+    if (app.layerState.counties && zoom >= LAYER_ZOOM.counties) {
+      addBoundaryKey(legend, COLORS.county, "County boundary");
+    }
+    if (app.layerState.municipal && zoom >= LAYER_ZOOM.municipal) {
+      addBoundaryKey(legend, COLORS.municipal, "Municipal / subdivision");
+    }
+  }
 }
 
 function renderScalePanel() {
@@ -448,21 +623,46 @@ function renderSummary() {
 function renderSelection() {
   const target = document.getElementById("selection-panel");
   target.replaceChildren();
-  if (app.mode !== "state" || !app.selectedZip) return;
-  const entry = app.stateByZip.get(app.selectedZip);
-  target.appendChild(el("h2", null, "Selected ZIP area"));
+  if (app.mode !== "state" || !app.selection) return;
+  const selection = app.selection;
+  const entry = selection.entry;
+  target.appendChild(el("h2", null, "Selected location"));
   const card = el("div", "heat-selection");
   const head = el("div", "heat-selection-head");
-  head.appendChild(el("strong", null, app.selectedZip));
+  const title = selection.municipal
+    ? selection.municipal.properties.displayName
+    : selection.zip
+      ? `ZIP / ZCTA ${selection.zip.properties.zip}`
+      : selection.county
+        ? selection.county.properties.displayName
+        : "Map location";
+  head.appendChild(el("strong", null, title));
+  const locationLine = [
+    selection.county && selection.county.properties.displayName,
+    selection.stateName,
+  ].filter(Boolean).join(", ");
+  if (locationLine) head.appendChild(el("span", null, locationLine));
   const body = el("div", "heat-selection-body");
+
+  const perDiem = el("section", "selection-group");
+  perDiem.appendChild(el("h3", null, "Per diem"));
   if (!entry) {
-    body.appendChild(el("span", "heat-selection-value", "No rate"));
-    body.appendChild(el("span", "heat-selection-label", "No published rate for this date"));
+    perDiem.appendChild(el("p", "selection-message", "No published rate for this date."));
   } else if (entry.status === "ambiguous") {
-    body.appendChild(el("span", "heat-selection-value", "Multiple rates"));
-    body.appendChild(
-      el("span", "heat-selection-label", `${entry.candidateCount} official localities intersect this ZIP`)
+    const warning = el("p", "selection-message");
+    warning.append(
+      el("strong", null, "Rate requires more precise location. "),
+      document.createTextNode(
+        `This ZIP intersects ${entry.candidateCount} published GSA rate localities. ` +
+        "The map does not choose one from ZIP geography alone."
+      )
     );
+    perDiem.appendChild(warning);
+    if (entry.candidates && entry.candidates.length) {
+      perDiem.appendChild(
+        el("p", "selection-message", `Published candidates: ${entry.candidates.join("; ")}`)
+      );
+    }
     const link = el(
       "a",
       "ghost heat-selection-link",
@@ -473,14 +673,92 @@ function renderSelection() {
       link.target = "_blank";
       link.rel = "noopener noreferrer";
     }
-    body.appendChild(link);
+    perDiem.appendChild(link);
   } else {
-    body.appendChild(el("span", "heat-selection-value", money(entry[currentMetric().field])));
-    body.appendChild(el("span", "heat-selection-label", currentMetric().label));
-    body.appendChild(el("span", "heat-selection-locality", entry.locality));
+    const rates = el("dl", "selection-grid");
+    [
+      ["Lodging / night", entry.lodgingRate],
+      ["M&IE / day", entry.mieRate],
+      ["First & last day", entry.firstLastDayMie],
+    ].forEach(([label, value]) => {
+      rates.append(el("dt", null, label), el("dd", null, money(value)));
+    });
+    perDiem.appendChild(rates);
   }
+  body.appendChild(perDiem);
+
+  const rateArea = el("section", "selection-group");
+  rateArea.appendChild(el("h3", null, "Rate area"));
+  if (entry && entry.status !== "ambiguous") {
+    rateArea.appendChild(el("p", "selection-message", entry.locality));
+    rateArea.appendChild(
+      el(
+        "p",
+        "selection-message",
+        selection.locality
+          ? "Boundary available: GSA definition matches complete counties."
+          : "No authoritative polygon is shown for this published definition."
+      )
+    );
+  } else {
+    rateArea.appendChild(el("p", "selection-message", "No single rate area can be assigned."));
+  }
+  body.appendChild(rateArea);
+
+  const geography = el("section", "selection-group");
+  geography.appendChild(el("h3", null, "Geography"));
+  const geographicRows = el("dl", "selection-grid");
+  const municipalLabel = selection.municipal
+    ? selection.municipal.properties.displayName
+    : selection.mode === "zip"
+      ? "Select a point to identify"
+      : "Not identified";
+  const countyLabel = selection.county
+    ? selection.county.properties.displayName
+    : (selection.countyIntersections || []).map((item) => item.properties.displayName).join("; ") ||
+      "Not identified";
+  geographicRows.append(
+    el("dt", null, "Municipality"),
+    el("dd", null, municipalLabel),
+    el("dt", null, "County"),
+    el("dd", null, countyLabel),
+    el("dt", null, "ZIP / ZCTA"),
+    el("dd", null, selection.zip ? selection.zip.properties.zip : "Not identified")
+  );
+  geography.appendChild(geographicRows);
+  if (selection.mode === "zip" && selection.municipalIntersections.length > 1) {
+    geography.appendChild(
+      el(
+        "p",
+        "selection-message",
+        `This ZCTA intersects ${selection.municipalIntersections.length} loaded municipal ` +
+        "geographies. Click a point to identify the applicable one."
+      )
+    );
+  }
+  body.appendChild(geography);
+
+  const actions = el("div", "selection-actions");
+  [
+    ["locality", "Highlight rate area", Boolean(selection.locality)],
+    ["municipal", "Highlight municipality", Boolean(selection.municipal)],
+    ["zip", "Highlight ZIP", Boolean(selection.zip)],
+    ["county", "Highlight county", Boolean(selection.county)],
+  ].forEach(([kind, label, available]) => {
+    if (!available) return;
+    const button = el("button", "ghost", label);
+    button.type = "button";
+    button.dataset.highlight = kind;
+    button.setAttribute("aria-pressed", String(app.highlighted === kind));
+    actions.appendChild(button);
+  });
+  if (actions.childElementCount) body.appendChild(actions);
   card.append(head, body);
   target.appendChild(card);
+
+  target.querySelectorAll("[data-highlight]").forEach((button) => {
+    button.addEventListener("click", () => highlightSelection(button.dataset.highlight));
+  });
 }
 
 function renderAll() {
@@ -501,6 +779,7 @@ function renderAll() {
       layer.setTooltipContent(zctaTooltip(layer.feature));
     });
   }
+  updateLayerVisibility();
 }
 
 function setNationalData(data) {
@@ -576,8 +855,11 @@ function materializeStaticState(source, national) {
         zip,
         status: "ambiguous",
         candidateCount: matches.length,
+        candidates: [...new Set(matches.map((row) => row[2]))].sort(),
         locality: null,
         isStandard: null,
+        destinationId: null,
+        county: null,
         lodgingRate: null,
         mieRate: null,
         firstLastDayMie: null,
@@ -589,11 +871,14 @@ function materializeStaticState(source, national) {
       zip,
       status: "rated",
       candidateCount: 1,
+      candidates: [],
       locality: row[2],
       isStandard: Boolean(row[3]),
       lodgingRate: row[4],
       mieRate: row[5],
       firstLastDayMie: row[6],
+      destinationId: row[7] || null,
+      county: row[8] || null,
     });
   });
   const rated = rates.filter((item) => item.status === "rated");
@@ -630,7 +915,13 @@ async function loadDate() {
       ? await loadStateData(app.activeState, national)
       : null;
     setNationalData(national);
-    if (state) setStateData(state);
+    if (state) {
+      setStateData(state);
+      if (app.selection && app.selection.zip) {
+        app.selection.entry = app.stateByZip.get(app.selection.zip.properties.zip) || null;
+        app.selection.locality = localityForEntry(app.selection.entry, app.selection.point);
+      }
+    }
     renderAll();
   } finally {
     button.disabled = false;
@@ -654,7 +945,8 @@ function buildStatesLayer(geojson) {
     app.gradientLayer = createStateGradientLayer().addTo(app.map);
   }
   app.statesLayer = L.geoJSON(geojson, {
-    renderer: app.renderer,
+    renderer: app.renderers.stateBoundary,
+    pane: "stateBoundaryPane",
     style: stateStyle,
     onEachFeature(feature, layer) {
       layer.bindTooltip(stateTooltip(feature), { sticky: true, className: "zcta-tip" });
@@ -674,42 +966,264 @@ function buildStatesLayer(geojson) {
   }).addTo(app.map);
 }
 
+async function loadStateGeometry(kind, code) {
+  if (!app.geoCache[kind].has(code)) {
+    app.geoCache[kind].set(
+      code,
+      await fetchJSON(geoUrl(`${kind}/${code}.geojson`, `${kind}/${code}`))
+    );
+  }
+  return app.geoCache[kind].get(code);
+}
+
+function registerFeatureLayers(kind, layerGroup) {
+  const index = new Map();
+  layerGroup.eachLayer((layer) => {
+    const properties = layer.feature.properties;
+    const key = kind === "zcta" ? properties.zip : properties.geoid || layer.feature.id;
+    index.set(String(key), layer);
+  });
+  app.featureLayers[kind] = index;
+}
+
+function buildReferenceLayer(geojson, kind, pane) {
+  const rendererName = {
+    localities: "rateArea",
+    counties: "county",
+    municipal: "municipality",
+  }[kind];
+  const layer = L.geoJSON(geojson, {
+    renderer: app.renderers[rendererName],
+    pane,
+    style: () => boundaryStyle(kind),
+    onEachFeature(feature, featureLayer) {
+      featureLayer.bindTooltip(featureTooltip(feature, kind), {
+        sticky: true,
+        className: "zcta-tip",
+      });
+    },
+  });
+  registerFeatureLayers(kind, layer);
+  return layer;
+}
+
+function setLayerOnMap(layer, visible) {
+  if (!layer) return;
+  const present = app.map.hasLayer(layer);
+  if (visible && !present) layer.addTo(app.map);
+  if (!visible && present) app.map.removeLayer(layer);
+}
+
+function updateLayerVisibility() {
+  if (!app.map) return;
+  const zoom = app.map.getZoom();
+  const inState = app.mode === "state";
+  const zctaVisible = inState && (app.layerState.rate ||
+    (app.layerState.zcta && zoom >= LAYER_ZOOM.zcta));
+  setLayerOnMap(app.zctaLayer, zctaVisible);
+  setLayerOnMap(
+    app.localityLayer,
+    inState && app.layerState.localities && zoom >= LAYER_ZOOM.localities
+  );
+  setLayerOnMap(
+    app.countyLayer,
+    inState && app.layerState.counties && zoom >= LAYER_ZOOM.counties
+  );
+  setLayerOnMap(
+    app.municipalLayer,
+    inState && app.layerState.municipal && zoom >= LAYER_ZOOM.municipal
+  );
+  if (app.zctaLayer && app.map.hasLayer(app.zctaLayer)) {
+    app.zctaLayer.eachLayer((layer) => layer.setStyle(zctaStyle(layer.feature)));
+  }
+  const status = document.getElementById("layer-status");
+  if (!inState) {
+    status.textContent = "Detailed boundaries appear after selecting a state.";
+    return;
+  }
+  const visible = [];
+  if (app.layerState.localities && zoom >= LAYER_ZOOM.localities) visible.push("rate areas");
+  if (app.layerState.counties && zoom >= LAYER_ZOOM.counties) visible.push("counties");
+  if (app.layerState.municipal && zoom >= LAYER_ZOOM.municipal) visible.push("municipal");
+  if (app.layerState.zcta && zoom >= LAYER_ZOOM.zcta) visible.push("ZCTA borders");
+  status.textContent = visible.length
+    ? `Zoom ${zoom}: showing ${visible.join(", ")}.`
+    : `Zoom ${zoom}: zoom in for the enabled detailed boundaries.`;
+}
+
+function containingFeatures(kind, point) {
+  const index = app.spatialIndexes[kind];
+  return index ? index.containing(point.lat, point.lng) : [];
+}
+
+function primaryMunicipal(features) {
+  return [...features].sort((left, right) => {
+    const priority = Number(right.properties.priority || 0) - Number(left.properties.priority || 0);
+    if (priority) return priority;
+    return Number(left.properties.areaLand || Infinity) - Number(right.properties.areaLand || Infinity);
+  })[0] || null;
+}
+
+function localityForEntry(entry, point = null) {
+  if (!entry || entry.status === "ambiguous" || !entry.destinationId) return null;
+  const candidates = (app.geoCache.localities.get(app.activeState)?.features || [])
+    .filter((feature) => String(feature.properties.destinationId) === String(entry.destinationId));
+  if (!candidates.length) return null;
+  if (point) {
+    return candidates.find((feature) => pointInGeometry(point.lng, point.lat, feature.geometry)) ||
+      candidates[0];
+  }
+  return candidates[0];
+}
+
+function stateNameForSelection(...features) {
+  const feature = features.find(Boolean);
+  if (feature && feature.properties.stateName) return feature.properties.stateName;
+  const state = (app.statesGeojson.features || [])
+    .find((item) => item.properties.state === app.activeState);
+  return state ? state.properties.name : app.activeState;
+}
+
+function buildPointSelection(point) {
+  const zip = containingFeatures("zcta", point)[0] || null;
+  const counties = containingFeatures("counties", point);
+  const municipalMatches = containingFeatures("municipal", point);
+  const municipal = primaryMunicipal(municipalMatches);
+  const county = counties[0] || null;
+  const entry = zip ? app.stateByZip.get(zip.properties.zip) || null : null;
+  return {
+    mode: "point",
+    point,
+    zip,
+    entry,
+    county,
+    countyIntersections: counties,
+    municipal,
+    municipalIntersections: municipalMatches,
+    locality: localityForEntry(entry, point),
+    stateName: stateNameForSelection(municipal, county),
+  };
+}
+
+function featureByGeoid(kind, geoid) {
+  const layer = app.featureLayers[kind].get(String(geoid));
+  return layer ? layer.feature : null;
+}
+
+function buildZipSelection(feature, center) {
+  const properties = feature.properties;
+  const countyIntersections = (properties.countyGeoids || [])
+    .map((geoid) => featureByGeoid("counties", geoid))
+    .filter(Boolean);
+  const municipalGeoids = [
+    ...(properties.cousubGeoids || []),
+    ...(properties.placeGeoids || []),
+  ];
+  const municipalIntersections = municipalGeoids
+    .map((geoid) => featureByGeoid("municipal", geoid))
+    .filter(Boolean);
+  const entry = app.stateByZip.get(properties.zip) || null;
+  return {
+    mode: "zip",
+    point: center,
+    zip: feature,
+    entry,
+    county: countyIntersections.length === 1 ? countyIntersections[0] : null,
+    countyIntersections,
+    municipal: municipalIntersections.length === 1 ? municipalIntersections[0] : null,
+    municipalIntersections,
+    locality: localityForEntry(entry, center),
+    stateName: stateNameForSelection(countyIntersections[0], municipalIntersections[0]),
+  };
+}
+
+function selectionFeatures(kind) {
+  if (!app.selection) return [];
+  if (kind === "locality" && app.selection.locality) {
+    const destinationId = app.selection.locality.properties.destinationId;
+    return (app.geoCache.localities.get(app.activeState)?.features || [])
+      .filter((feature) => String(feature.properties.destinationId) === String(destinationId));
+  }
+  const feature = app.selection[kind];
+  return feature ? [feature] : [];
+}
+
+function highlightSelection(kind) {
+  const features = selectionFeatures(kind);
+  if (!features.length) return;
+  app.highlighted = kind;
+  app.selectionLayer.clearLayers();
+  L.geoJSON({ type: "FeatureCollection", features }, {
+    pane: "selectionPane",
+    renderer: app.renderers.selection,
+    interactive: false,
+    style: {
+      color: COLORS.selected,
+      opacity: 1,
+      weight: 3.5,
+      fillColor: "#ffffff",
+      fillOpacity: 0.08,
+    },
+  }).addTo(app.selectionLayer);
+  renderSelection();
+}
+
+function selectPoint(point) {
+  app.selection = buildPointSelection(point);
+  app.selectedZip = app.selection.zip ? app.selection.zip.properties.zip : null;
+  if (app.selectedZip) document.getElementById("zip-search-input").value = app.selectedZip;
+  app.highlighted = app.selection.municipal ? "municipal" : app.selection.zip ? "zip" : "county";
+  renderAll();
+  const features = selectionFeatures(app.highlighted);
+  if (features.length) highlightSelection(app.highlighted);
+}
+
 async function selectState(code) {
   if (app.activeState === code) return;
-  document.getElementById("map-hint").textContent = `Loading ${code} ZIP rates…`;
-  const geoPromise = app.stateGeoCache.has(code)
-    ? Promise.resolve(app.stateGeoCache.get(code))
-    : fetchJSON(geoUrl(`zcta/${code}.geojson`, `zcta/${code}`));
-  const [geojson, data] = await Promise.all([
-    geoPromise,
+  document.getElementById("map-hint").textContent = `Loading ${code} geography and rates…`;
+  const [zcta, counties, municipal, localities, data] = await Promise.all([
+    loadStateGeometry("zcta", code),
+    loadStateGeometry("counties", code),
+    loadStateGeometry("municipal", code),
+    loadStateGeometry("localities", code),
     loadStateData(code, app.nationalData),
   ]);
-  app.stateGeoCache.set(code, geojson);
 
-  if (app.zctaLayer) app.map.removeLayer(app.zctaLayer);
+  [app.zctaLayer, app.countyLayer, app.municipalLayer, app.localityLayer]
+    .filter(Boolean)
+    .forEach((layer) => setLayerOnMap(layer, false));
   app.activeState = code;
   app.mode = "state";
   app.selectedZip = null;
-  if (app.statesLayer) {
-    app.statesLayer.eachLayer((layer) => layer.closeTooltip());
-  }
+  app.selection = null;
+  app.selectionLayer.clearLayers();
+  if (app.statesLayer) app.statesLayer.eachLayer((layer) => layer.closeTooltip());
   setStateData(data);
-  app.zctaLayer = L.geoJSON(geojson, {
-    renderer: app.renderer,
+
+  app.spatialIndexes = {
+    zcta: createSpatialIndex(zcta),
+    counties: createSpatialIndex(counties),
+    municipal: createSpatialIndex(municipal, 0.25),
+    localities: createSpatialIndex(localities),
+  };
+  app.zctaLayer = L.geoJSON(zcta, {
+    renderer: app.renderers.rateHeat,
+    pane: "rateHeatPane",
     style: zctaStyle,
     onEachFeature(feature, layer) {
       layer.bindTooltip(zctaTooltip(feature), { sticky: true, className: "zcta-tip" });
-      layer.on("click", (event) => {
-        L.DomEvent.stopPropagation(event);
-        app.selectedZip = feature.properties.zip;
-        document.getElementById("zip-search-input").value = app.selectedZip;
-        renderAll();
-      });
     },
-  }).addTo(app.map);
-  app.map.fitBounds(app.zctaLayer.getBounds(), { padding: [18, 18], animate: false });
+  });
+  registerFeatureLayers("zcta", app.zctaLayer);
+  app.countyLayer = buildReferenceLayer(counties, "counties", "countyPane");
+  app.municipalLayer = buildReferenceLayer(municipal, "municipal", "municipalityPane");
+  app.localityLayer = buildReferenceLayer(localities, "localities", "rateAreaPane");
+
+  const bounds = app.zctaLayer.getBounds();
+  if (bounds.isValid()) app.map.fitBounds(bounds, { padding: [18, 18], animate: false });
   document.getElementById("back-to-states").hidden = false;
-  document.getElementById("map-hint").textContent = `${code}: select a ZIP area for its rate.`;
+  document.getElementById("map-hint").textContent =
+    `${code}: click anywhere to identify rate and jurisdiction.`;
   renderAll();
 }
 
@@ -734,12 +1248,7 @@ async function loadZipEntry(zip) {
 }
 
 function layerForZip(zip) {
-  let match = null;
-  if (!app.zctaLayer) return match;
-  app.zctaLayer.eachLayer((layer) => {
-    if (layer.feature && layer.feature.properties.zip === zip) match = layer;
-  });
-  return match;
+  return app.featureLayers.zcta.get(zip) || null;
 }
 
 async function locateZip(raw) {
@@ -760,30 +1269,43 @@ async function locateZip(raw) {
       animate: false,
     });
     layer.openTooltip();
+    app.selection = buildZipSelection(layer.feature, layer.getBounds().getCenter());
   } else if (entry.center) {
     app.map.setView(entry.center, 11, { animate: false });
   }
+  app.highlighted = "zip";
   document.getElementById("map-hint").textContent =
     `${entry.state}: ZIP ${zip} selected. Choose another ZIP or click an area.`;
   renderAll();
+  if (app.selection) highlightSelection("zip");
 }
 
 function backToStates() {
-  if (app.zctaLayer) app.map.removeLayer(app.zctaLayer);
+  [app.zctaLayer, app.countyLayer, app.municipalLayer, app.localityLayer]
+    .filter(Boolean)
+    .forEach((layer) => setLayerOnMap(layer, false));
   app.zctaLayer = null;
+  app.countyLayer = null;
+  app.municipalLayer = null;
+  app.localityLayer = null;
+  app.selectionLayer.clearLayers();
+  app.spatialIndexes = {};
+  Object.keys(app.featureLayers).forEach((kind) => { app.featureLayers[kind] = new Map(); });
   app.activeState = null;
   app.stateData = null;
   app.stateByZip.clear();
   app.selectedZip = null;
+  app.selection = null;
   app.mode = "national";
   app.map.setView(NATIONAL_VIEW.center, NATIONAL_VIEW.zoom, { animate: false });
   document.getElementById("back-to-states").hidden = true;
-  document.getElementById("map-hint").textContent = "Click a state for ZIP-level rates.";
+  document.getElementById("map-hint").textContent = "Click a state for local rates and geography.";
   renderAll();
 }
 
 function setupBasemap() {
   document.getElementById("basemap-toggle").addEventListener("change", (event) => {
+    app.layerState.basemap = event.target.checked;
     if (event.target.checked) {
       if (!app.tiles) {
         app.tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -797,6 +1319,25 @@ function setupBasemap() {
       app.map.removeLayer(app.tiles);
     }
   });
+}
+
+function setupLayerControls() {
+  const bindings = {
+    "layer-rate": "rate",
+    "layer-localities": "localities",
+    "layer-municipal": "municipal",
+    "layer-zcta": "zcta",
+    "layer-counties": "counties",
+  };
+  Object.entries(bindings).forEach(([id, key]) => {
+    document.getElementById(id).addEventListener("change", (event) => {
+      app.layerState[key] = event.target.checked;
+      renderAll();
+    });
+  });
+  if (window.matchMedia("(max-width: 560px)").matches) {
+    document.getElementById("layer-panel").removeAttribute("open");
+  }
 }
 
 function renderContext(context) {
@@ -823,19 +1364,49 @@ function renderContext(context) {
 }
 
 async function init() {
-  app.renderer = L.canvas({ padding: 0.4 });
   app.map = L.map("map", {
     preferCanvas: true,
-    renderer: app.renderer,
     minZoom: 3,
     maxZoom: 17,
     worldCopyJump: false,
   }).setView(NATIONAL_VIEW.center, NATIONAL_VIEW.zoom);
-  app.map.createPane("stateGradientPane");
-  app.map.getPane("stateGradientPane").style.zIndex = "350";
+  [
+    ["stateGradientPane", 350],
+    ["rateHeatPane", 360],
+    ["stateBoundaryPane", 400],
+    ["countyPane", 420],
+    ["municipalityPane", 430],
+    ["rateAreaPane", 450],
+    ["selectionPane", 470],
+  ].forEach(([name, zIndex]) => {
+    app.map.createPane(name);
+    app.map.getPane(name).style.zIndex = String(zIndex);
+  });
   app.map.getPane("stateGradientPane").style.pointerEvents = "none";
+  app.map.getPane("selectionPane").style.pointerEvents = "none";
+  app.renderers = {
+    rateHeat: L.canvas({ padding: 0.4, pane: "rateHeatPane" }),
+    stateBoundary: L.canvas({ padding: 0.4, pane: "stateBoundaryPane" }),
+    county: L.canvas({ padding: 0.4, pane: "countyPane" }),
+    municipality: L.canvas({ padding: 0.4, pane: "municipalityPane" }),
+    rateArea: L.canvas({ padding: 0.4, pane: "rateAreaPane" }),
+    selection: L.canvas({ padding: 0.4, pane: "selectionPane" }),
+  };
+  app.selectionLayer = L.layerGroup().addTo(app.map);
   watchMapSize();
   setupBasemap();
+  setupLayerControls();
+  document.getElementById("geography-provenance").href = STATIC_MODE
+    ? "./data/geo/manifest.json"
+    : "/api/context";
+
+  app.map.on("zoomend", () => {
+    updateLayerVisibility();
+    renderLegend();
+  });
+  app.map.on("click", (event) => {
+    if (app.mode === "state") selectPoint(event.latlng);
+  });
 
   document.getElementById("metric-input").addEventListener("change", (event) => {
     app.metric = event.target.value;

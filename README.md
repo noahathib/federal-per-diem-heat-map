@@ -131,11 +131,11 @@ Selecting a ZIP works two ways:
 
 Selection drives three panels: a rate lookup, a trip estimate, and a database check. Every panel runs a real script as a child process and streams the command line, stdout, stderr, exit code, and duration into a transcript pane, so the dashboard is a view of the pipeline rather than a second implementation of it.
 
-Open `http://127.0.0.1:8765/heatmap` (or use **Rate heat map** in the header) for a separate analytical map. It can switch among lodging, daily M&IE, and first/last-day M&IE for travel dates from today through the same date next year. When an official future fiscal year has not been loaded yet, the map uses the latest loaded fiscal year's equivalent seasonal date as a clearly labeled planning estimate; projected rows are never written to SQLite. The national view fills each state with a clipped regional gradient derived from its underlying ZIP rates, preserving small high-cost areas; clicking a state loads exact ZIP-area colors. ZIPs that intersect multiple official localities are shown separately rather than assigned a guessed value, and postal ZIPs without a Census ZCTA are omitted because they have no polygon to color. The heat-map endpoint reads SQLite in read-only mode and does not modify published data.
+Open `http://127.0.0.1:8765/heatmap` (or use **Rate heat map** in the header) for a separate analytical map. It can switch among lodging, daily M&IE, and first/last-day M&IE for travel dates from today through the same date next year. When an official future fiscal year has not been loaded yet, the map uses the latest loaded fiscal year's equivalent seasonal date as a clearly labeled planning estimate; projected rows are never written to SQLite. The national view fills each state with a clipped regional gradient derived from its underlying ZIP rates, preserving small high-cost areas; clicking a state loads exact ZIP-area colors plus state-specific county, municipal/subdivision, and defensible GSA rate-area reference layers. A local click identifies the containing ZCTA, county, municipal geography, and published rate locality, and each extent can be highlighted independently without covering the rate fill. ZIPs that intersect multiple official localities are shown separately rather than assigned a guessed value, and postal ZIPs without a Census ZCTA are omitted because they have no polygon to color. The heat-map endpoint reads SQLite in read-only mode and does not modify published data.
 
 ### Mobile GitHub Pages edition
 
-GitHub Pages cannot run the Python/SQLite dashboard server, so the repository also ships a generated static edition. It precomputes the small national date summaries and loads compact rate intervals and ZIP geometry only for the state selected on the map. The result keeps the one-year planning window and official-versus-estimate labels without shipping the database to the browser.
+GitHub Pages cannot run the Python/SQLite dashboard server, so the repository also ships a generated static edition. It precomputes the small national date summaries and loads compact rate intervals and detailed geography only for the state selected on the map. The result keeps the one-year planning window, jurisdiction identification, and official-versus-estimate labels without shipping the database to the browser.
 
 Build or refresh the publishable `site/` directory after changing rates or map data:
 
@@ -288,9 +288,9 @@ The map layers are built separately by `scripts/build_map_data.py` and are never
 
 The dependency runs the other way, though. `geo_builder.py` reads the rate database to stamp each ZCTA with `inDatabase` and each state with `ratedZipCount`, so a refresh that changes which ZIPs have rates leaves those coverage flags stale until the map is rebuilt. Geometry is unaffected; only the coverage shading is. Re-run `scripts/build_map_data.py` after any refresh that adds or removes rated ZIPs.
 
-1. `downloader.py` caches the Census state and ZCTA cartographic boundary archives with the same SHA-256 provenance as every other source.
+1. `downloader.py` caches the Census state, ZCTA, county, county-subdivision, and place cartographic boundary archives with the same SHA-256 provenance as every other source.
 2. `shapefile_reader.py` reads the ESRI polygon and dBASE formats directly, validating each structural field against the published specification.
-3. `geo_builder.py` assigns each ZCTA to its largest-area state, writes simplified per-state GeoJSON for drawing, and writes a bounding-box index plus a manifest recording source URLs, hashes, the coordinate reference system, and the simplification tolerance.
+3. `geo_builder.py` assigns each ZCTA to its largest-area state; writes simplified, per-state ZCTA, county, and municipal GeoJSON; and publishes GSA rate-area outlines only when the workbook definition exactly matches one or more complete counties. The manifest records source URLs, hashes, vintages, feature counts, the coordinate reference system, and simplification settings.
 4. `geo_lookup.py` resolves a clicked coordinate by narrowing on the index and running an exact point-in-polygon test against the unmodified `.shp`.
 
 No failed parse, validation, database build, or export operation can overwrite the last known-good database.
@@ -301,7 +301,7 @@ No failed parse, validation, database build, or export operation can overwrite t
 - GSA [Per diem API documentation](https://open.gsa.gov/api/perdiem/): used to confirm destination IDs, standard CONUS behavior, monthly fields, M&IE, ZIP semantics, and fiscal-year conventions. The production refresh prefers downloadable flat files and does not require an API key.
 - DTMO [Per diem rate lookup and downloads](https://www.travel.dod.mil/Travel-Transportation-Rates/Per-Diem/Per-Diem-Rate-Lookup/): calendar-year OCONUS ASCII archives for Alaska, Hawaii, Puerto Rico, Guam, the U.S. Virgin Islands, American Samoa, and the Northern Mariana Islands. DTMO rates may be revised monthly. The same archives carry foreign rates, which are not ingested: foreign localities have no ZIP code, and the Department of State, not DTMO, is their authoritative publisher.
 - Census Bureau [2020 geographic relationship files](https://www.census.gov/geographies/reference-files/2020/geo/relationship-files.html): ZCTA-to-place, ZCTA-to-county, and ZCTA-to-county-subdivision relationships.
-- Census Bureau [cartographic boundary files](https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html): the 2020 state (1:20,000,000) and ZCTA (1:500,000) shapefiles behind the dashboard map. ZCTAs are published only in the 2020 vintage.
+- Census Bureau [cartographic boundary files](https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html): the 2020 ZCTA and 2025 state, county, county-subdivision, and place 1:500,000 shapefiles behind the geography explorer. ZCTAs are published only in the 2020 vintage.
 
 See [`docs/SOURCES.md`](docs/SOURCES.md) for the inspected schemas, source URL templates, and assumptions.
 
@@ -332,8 +332,11 @@ The dashboard map layers live outside SQLite, under `data/processed/geo`:
 
 - `states.geojson`: one polygon per state with its ZCTA and rated-ZIP counts.
 - `zcta/<ST>.geojson`: simplified ZIP areas for one state, flagged by whether the ZIP has a rate.
+- `counties/<ST>.geojson`: Census county and equivalent boundaries.
+- `municipal/<ST>.geojson`: Census places and county subdivisions, preserving each published area type and removing coextensive duplicates.
+- `localities/<ST>.geojson`: GSA rate-area boundary parts only for complete-county definitions; exceptions and city-only definitions are intentionally absent.
 - `index.npz`: ZIP, state, bounding box, and shapefile record number for all 33,791 ZCTAs.
-- `manifest.json`: source URLs, SHA-256 hashes, coordinate reference system, tolerance, and per-state counts.
+- `manifest.json`: source URLs, vintages, SHA-256 hashes, coordinate reference system, tolerance, normalization policy, and per-state counts.
 
 Uniqueness constraints prevent repeated refreshes from producing duplicates. Indexes cover ZIP, state, fiscal year, month, effective dates, and location.
 
@@ -344,7 +347,7 @@ data/
 ├── raw/FY2026/       # immutable downloaded government files
 ├── raw/geo/          # Census cartographic boundary archives
 ├── processed/        # canonical SQLite plus CSV/XLSX exports
-├── processed/geo/    # generated map layers (states, per-state ZCTA, index)
+├── processed/geo/    # state-split rate and administrative map layers plus index
 └── archive/          # timestamped last-known-good outputs
 ```
 
@@ -362,6 +365,9 @@ Other configuration variables:
 - `FEDERAL_PER_DIEM_CENSUS_COUSUB_URL`
 - `FEDERAL_PER_DIEM_CENSUS_STATE_BOUNDARY_URL`
 - `FEDERAL_PER_DIEM_CENSUS_ZCTA_BOUNDARY_URL`
+- `FEDERAL_PER_DIEM_CENSUS_COUNTY_BOUNDARY_URL`
+- `FEDERAL_PER_DIEM_CENSUS_COUSUB_BOUNDARY_URL`
+- `FEDERAL_PER_DIEM_CENSUS_PLACE_BOUNDARY_URL`
 - `FEDERAL_PER_DIEM_MAP_TOLERANCE`
 - `FEDERAL_PER_DIEM_MAP_DECIMALS`
 
@@ -392,7 +398,7 @@ Map and dashboard tests build byte-valid synthetic shapefiles rather than mocks,
 
 - A ZIP code can intersect more than one GSA locality. The FY2026 workbook contains 1,839 such ZIPs. Because ZIP alone is insufficient in that case, `get_per_diem` raises `AmbiguousRateError` and lists the official candidate localities instead of guessing. Use the traveler's exact duty locality to resolve it.
 - Census ZCTAs approximate USPS delivery ZIPs and omit some unique or PO-box-only ZIPs. Non-CONUS coverage therefore applies wherever the official 2020 ZCTA source supplies a mapping.
-- Guam, the U.S. Virgin Islands, American Samoa, and the Northern Mariana Islands have no polygon in the Census cartographic boundary file, which covers only the 50 states, the District of Columbia, and Puerto Rico. Their 17 ZIPs are fully queryable by typing the ZIP but cannot be reached by clicking the map. Puerto Rico is drawn and clickable.
+- Guam, the U.S. Virgin Islands, American Samoa, and the Northern Mariana Islands are included in the state-on-demand map assets. The builder uses the 56-entity 2025 state file to group the 17 territory ZCTAs that were present in the 2020 ZCTA source but could not be assigned by the former 52-entity state file. Their ZIPs remain fully queryable by typing as well.
 - Foreign per diem rates are out of scope. They are keyed by country and locality rather than ZIP, so they do not fit this project's ZIP-addressed lookup, and the Department of State publishes them separately.
 - DTMO archives are calendar-year, monthly publications; a federal fiscal year needs the previous and current calendar-year archives. For a not-yet-published month, the latest available DTMO snapshot is carried forward and its published seasonal range is applied. Refresh after DTMO's monthly publication to incorporate revisions.
 - DTMO installation names are not inferred from surrounding geography. Civilian ZCTAs map to named civil localities, island rates, or the official `[OTHER]` row.

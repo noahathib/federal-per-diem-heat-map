@@ -9,7 +9,7 @@
 <title>Federal Per Diem Heat Map</title>
 <link rel="stylesheet" href="./vendor/leaflet.css">
 <link rel="stylesheet" href="./styles.css?v=de8d46e830d9">
-<link rel="stylesheet" href="./heatmap.css?v=d21ce07f27a6">
+<link rel="stylesheet" href="./heatmap.css?v=18a7a46bd9ea">
 </head>
 <body class="heatmap-body">
 <header class="masthead">
@@ -34,10 +34,6 @@
         <button class="ghost" type="submit">Find</button>
       </form>
       <span id="map-hint" class="hint" role="status" aria-live="polite">Search a ZIP or click a state for exact ZIP-level rates.</span>
-      <label class="toggle">
-        <input type="checkbox" id="basemap-toggle">
-        <span>Street basemap</span>
-      </label>
     </div>
     <div id="map" role="application" aria-label="United States per diem heat map"></div>
     <div class="map-legend heat-legend" id="map-legend"></div>
@@ -62,6 +58,48 @@
         <button type="submit" class="primary">Update map</button>
       </form>
 
+      <details id="layer-panel" class="layer-panel" open>
+        <summary>Map layers</summary>
+        <div class="layer-panel-body">
+          <fieldset>
+            <legend>Per diem</legend>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-rate" checked>
+              <span><strong>Rate heatmap</strong><small>Selected rate shown as fill color</small></span>
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Boundaries</legend>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-localities" checked>
+              <span><strong>Per diem locality</strong><small>County-defined GSA areas only</small></span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-municipal" checked>
+              <span><strong>Municipalities / townships</strong><small>Census places and subdivisions</small></span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-zcta">
+              <span><strong>ZIP / ZCTA</strong><small>Census lookup geography</small></span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-counties">
+              <span><strong>Counties</strong><small>County and equivalent boundaries</small></span>
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Reference</legend>
+            <label class="layer-toggle">
+              <input type="checkbox" id="basemap-toggle">
+              <span><strong>Street basemap</strong><small>OpenStreetMap reference tiles</small></span>
+            </label>
+          </fieldset>
+          <p id="layer-status" class="layer-status" role="status" aria-live="polite">
+            Detailed boundaries appear after selecting a state.
+          </p>
+        </div>
+      </details>
+
       <div id="scale-panel" class="heat-section" aria-live="polite"></div>
       <div id="summary-panel" class="heat-section" aria-live="polite"></div>
       <div id="selection-panel" class="heat-section" aria-live="polite"></div>
@@ -77,6 +115,12 @@
           Purple ZIPs intersect multiple official rate localities. They stay out of
           the gradient because a ZIP alone cannot identify one correct rate.
         </p>
+        <p>
+          Boundary names preserve Census terms such as township, borough, CDP, or
+          county subdivision. A rate-area outline appears only when GSA defines the
+          locality as complete counties.
+        </p>
+        <p><a id="geography-provenance" href="./data/geo/manifest.json">Geography provenance</a></p>
       </div>
     </section>
   </aside>
@@ -85,6 +129,6 @@
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="./vendor/leaflet.js"></script>
-<script src="./heatmap.js?v=c1edd9dafdd1"></script>
+<script src="./heatmap.js?v=f5322f460bdc"></script>
 </body>
 </html>

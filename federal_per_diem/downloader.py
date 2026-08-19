@@ -99,9 +99,9 @@ def fiscal_year_source_specs(fiscal_year: int, settings: Settings) -> list[Sourc
 def boundary_source_specs(settings: Settings) -> list[SourceSpec]:
     """Return the Census cartographic boundary archives used by the map layers.
 
-    Cartographic boundary files are a 2020 geographic vintage, not a fiscal-year
-    publication, so they are tracked separately from the rate sources and carry
-    fiscal year 0.
+    Cartographic boundaries are tracked separately from rate sources and carry
+    fiscal year 0. ZCTAs use their latest available 2020 vintage; administrative
+    boundaries use the latest configured annual vintage.
     """
 
     archive_types = (
@@ -113,13 +113,28 @@ def boundary_source_specs(settings: Settings) -> list[SourceSpec]:
     for key, name, url in (
         (
             "census_state_boundary",
-            "2020 Cartographic Boundary File, States (1:20,000,000)",
+            "2025 Cartographic Boundary File, States (1:500,000)",
             settings.census_state_boundary_url,
         ),
         (
             "census_zcta_boundary",
             "2020 Cartographic Boundary File, ZIP Code Tabulation Areas (1:500,000)",
             settings.census_zcta_boundary_url,
+        ),
+        (
+            "census_county_boundary",
+            "2025 Cartographic Boundary File, Counties (1:500,000)",
+            settings.census_county_boundary_url,
+        ),
+        (
+            "census_cousub_boundary",
+            "2025 Cartographic Boundary File, County Subdivisions (1:500,000)",
+            settings.census_cousub_boundary_url,
+        ),
+        (
+            "census_place_boundary",
+            "2025 Cartographic Boundary File, Places (1:500,000)",
+            settings.census_place_boundary_url,
         ),
     ):
         specs.append(

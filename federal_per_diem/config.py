@@ -41,10 +41,19 @@ class Settings:
         "tab20_zcta520_cousub20_natl.txt"
     )
     census_state_boundary_url: str = (
-        "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_state_20m.zip"
+        "https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_state_500k.zip"
     )
     census_zcta_boundary_url: str = (
         "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_zcta520_500k.zip"
+    )
+    census_county_boundary_url: str = (
+        "https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_county_500k.zip"
+    )
+    census_cousub_boundary_url: str = (
+        "https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_cousub_500k.zip"
+    )
+    census_place_boundary_url: str = (
+        "https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_place_500k.zip"
     )
     map_simplify_tolerance: float = 0.001
     map_coordinate_decimals: int = 5
@@ -92,6 +101,18 @@ class Settings:
             census_zcta_boundary_url=os.getenv(
                 "FEDERAL_PER_DIEM_CENSUS_ZCTA_BOUNDARY_URL",
                 defaults.census_zcta_boundary_url,
+            ),
+            census_county_boundary_url=os.getenv(
+                "FEDERAL_PER_DIEM_CENSUS_COUNTY_BOUNDARY_URL",
+                defaults.census_county_boundary_url,
+            ),
+            census_cousub_boundary_url=os.getenv(
+                "FEDERAL_PER_DIEM_CENSUS_COUSUB_BOUNDARY_URL",
+                defaults.census_cousub_boundary_url,
+            ),
+            census_place_boundary_url=os.getenv(
+                "FEDERAL_PER_DIEM_CENSUS_PLACE_BOUNDARY_URL",
+                defaults.census_place_boundary_url,
             ),
             map_simplify_tolerance=float(
                 os.getenv("FEDERAL_PER_DIEM_MAP_TOLERANCE", "0.001")

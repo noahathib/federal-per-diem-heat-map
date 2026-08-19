@@ -70,7 +70,7 @@ def rate_server(map_data_dir, source_metadata):
         make_rate(
             zip_code="10002",
             state="NY",
-            locality="Locality A",
+            locality="Locality A, Metro Division",
             destination_id="102",
             lodging="200.00",
             mie="90.00",
@@ -337,6 +337,10 @@ def test_state_heatmap_keeps_multi_locality_zips_out_of_gradient(rate_server):
     assert by_zip["10001"]["lodgingRate"] == 150.0
     assert by_zip["10002"]["status"] == "ambiguous"
     assert by_zip["10002"]["candidateCount"] == 2
+    assert by_zip["10002"]["candidates"] == [
+        "Locality A, Metro Division",
+        "Locality B",
+    ]
     assert by_zip["10002"]["lodgingRate"] is None
 
 
@@ -344,6 +348,13 @@ def test_state_heatmap_keeps_multi_locality_zips_out_of_gradient(rate_server):
 
 def test_state_layer_is_served(server):
     response = get(server, "/api/geo/states")
+    assert response.status == 200
+    assert json.loads(response.read())["type"] == "FeatureCollection"
+
+
+@pytest.mark.parametrize("layer", ["zcta", "counties", "municipal", "localities"])
+def test_state_detail_layers_are_served(server, layer):
+    response = get(server, f"/api/geo/{layer}/NY")
     assert response.status == 200
     assert json.loads(response.read())["type"] == "FeatureCollection"
 

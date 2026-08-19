@@ -162,24 +162,33 @@ Discovery page:
 Files:
 
 ```text
-https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_state_20m.zip
 https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_zcta520_500k.zip
+https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_state_500k.zip
+https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_county_500k.zip
+https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_cousub_500k.zip
+https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_place_500k.zip
 ```
 
 ZCTAs are published only in the 2020 vintage. The later vintages of the
 cartographic boundary series (2021 onward) omit ZCTAs, urban areas, PUMAs, and
 voting districts, and the Census discovery page directs users back to the 2020
-tab for them. GENZ2020 is therefore the current ZCTA boundary release, not an
-outdated choice.
+tab for them. GENZ2020 is therefore the current ZCTA boundary release, while
+the administrative layers use the current 2025 annual release.
 
 Inspected structure, confirmed against the downloaded files:
 
 ```text
-cb_2020_us_state_20m:    52 polygon records; fields STATEFP, STATENS, AFFGEOID,
-                         GEOID, STUSPS, NAME, LSAD, ALAND, AWATER
 cb_2020_us_zcta520_500k: 33,791 polygon records, 38,288 rings, 5,954,485
                          vertices; fields ZCTA5CE20, AFFGEOID20, GEOID20,
                          NAME20, LSAD20, ALAND20, AWATER20
+cb_2025_us_state_500k:   56 records; fields STATEFP, STATENS, GEOIDFQ, GEOID,
+                         STUSPS, NAME, LSAD, ALAND, AWATER
+cb_2025_us_county_500k:  3,235 records; includes GEOID, NAME, NAMELSAD, STUSPS,
+                         STATE_NAME, and LSAD
+cb_2025_us_cousub_500k:  36,360 records; includes county GEOID parts,
+                         NAMELSAD, NAMELSADCO, and LSAD
+cb_2025_us_place_500k:   32,629 records; includes GEOID, NAMELSAD, STUSPS,
+                         STATE_NAME, and LSAD
 ```
 
 The 33,791 ZCTA records match, exactly, the 33,791 distinct
@@ -187,7 +196,7 @@ The 33,791 ZCTA records match, exactly, the 33,791 distinct
 the rate pipeline. That agreement between two independently published Census
 products is the cross-check that the boundary file was parsed correctly.
 
-Both files are ESRI shapefiles. `federal_per_diem/shapefile_reader.py` reads the
+All five files are ESRI shapefiles. `federal_per_diem/shapefile_reader.py` reads the
 polygon subset directly, following the ESRI Shapefile Technical Description
 (ESRI White Paper, July 1998) for the `.shp`/`.shx` layout and the dBASE III
 table format for the `.dbf`. Every structural field is validated on read: file
@@ -196,7 +205,7 @@ actual byte count, per-record numbering, the dBASE header terminator position,
 and the field widths against the declared record length. No third-party GIS
 dependency is introduced.
 
-The `.prj` for both files is:
+The `.prj` files declare:
 
 ```text
 GCS_North_American_1983 (NAD83), GRS 1980 spheroid, degrees
@@ -207,28 +216,56 @@ performed. NAD83 and WGS84 differ by roughly one to two metres in the
 contiguous states; that offset is far below the resolution of a 1:500,000
 cartographic boundary file and is not corrected.
 
-Two derived products are generated under `data/processed/geo`:
+The build generates these products under `data/processed/geo`:
 
-- Simplified per-state GeoJSON for drawing, using Douglas-Peucker at 0.001
+- `states.geojson` and simplified state-split ZCTA, county, and municipal
+  GeoJSON, using Douglas-Peucker at 0.001
   degrees (about 111 m). A 1:500,000 file is already generalized at roughly
-  250 m, so this removes redundant vertices rather than real boundary detail.
-  The generated layers keep 2,914,644 of the 5,954,485 source vertices.
+  250 m, so this removes redundant vertices rather than introducing a new
+  survey-grade boundary claim. The 2026-08-19 build writes 64,706 municipal
+  features after removing coextensive place/county-subdivision duplicates.
+- `localities/<ST>.geojson`, containing 319 county polygon parts for GSA
+  destinations whose published `LocationDefined` text exactly matches one or
+  more complete counties.
 - `index.npz`, a ZIP-to-record table with bounding boxes.
+- `manifest.json`, with source URLs, archive hashes, download timestamps,
+  vintages, feature counts, coordinate precision, simplification tolerance,
+  and the locality normalization policy.
 
-Clicks are **not** resolved against the simplified copy. The index locates
-candidate records by bounding box and the reader seeks into the unmodified
-`.shp` to run an exact even-odd point-in-polygon test, so display
-simplification cannot change which ZIP a click returns.
+The local dashboard's `/api/locate` endpoint still resolves a point against the
+unmodified ZCTA shapefile through `index.npz`. The static geography explorer
+has no server, so it builds a small spatial grid for the selected state's
+simplified layers and runs point-in-polygon only against candidate features in
+that grid. It never loads or scans national municipal geometry in the browser.
 
 ZCTAs are national and do not nest inside states. A ZCTA is grouped under the
 state holding its largest intersecting area, using the same
 largest-part policy the rate pipeline already applies to Census parts. This
 affects only which map layer draws the ZCTA.
 
-Seventeen ZCTAs fall in American Samoa, Guam, the Northern Mariana Islands, and
-the U.S. Virgin Islands, which have no polygon in the 50-state, District of
-Columbia, and Puerto Rico boundary file. They are recorded in the index and
-counted in the manifest but are not drawn.
+The 2025 state file has 56 entities, including American Samoa, Guam, the
+Northern Mariana Islands, and the U.S. Virgin Islands. Its FIPS-to-USPS table
+now assigns all 33,791 ZCTAs to a state or territory, including the seventeen
+territory ZCTAs that the former 52-entity 2020 state file left ungrouped.
+
+Municipal normalization. The cartographic DBFs publish `NAMELSAD` and `LSAD`
+but not the fuller TIGER/Line `CLASSFP`/`FUNCSTAT` fields. The explorer
+therefore preserves the Census area description in the name—`Falls Township`,
+`Hatboro Borough`, `Levittown CDP`, or a statistical subdivision such as a
+CCD—plus `sourceType` (`place` or `county_subdivision`). It does not label every
+county subdivision as a functioning township. When a place and county
+subdivision are coextensive with the same name and land/water area, the county
+subdivision representation is retained once; genuinely overlapping systems
+remain separate and are disclosed by point or ZIP selection.
+
+GSA locality boundaries. `LocationDefined` is authoritative text, not a ready
+polygon. A destination receives a boundary only when its definition tokens
+exactly equal the complete Census counties named in the workbook. Multi-county
+areas retain all county parts under one destination ID. Definitions containing
+an exclusion, a city limit, an installation, or other unmatched prose are
+omitted. For example, Bucks receives a complete-county outline while
+`Dauphin County excluding Hershey` does not. ZCTAs with multiple destination
+IDs remain ambiguous and are never dissolved into a fabricated locality.
 
 ZCTAs approximate USPS delivery areas and omit unique or PO-box-only ZIPs. ZIP
 20500, the White House, has no ZCTA: clicking that location returns the
